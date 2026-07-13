@@ -12,7 +12,7 @@ namespace ArIED61850Tester;
 
 public partial class MainWindow
 {
-    private sealed class Marker;
+    private sealed class Marker { }
 
     private sealed class TactileButtonState
     {
