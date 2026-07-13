@@ -9,6 +9,8 @@ public partial class MainWindow
 {
     private static readonly TimeSpan CswiPositionDebounce = TimeSpan.FromMilliseconds(350);
     private static readonly TimeSpan ControlFeedbackStateLifetime = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ControlRelatedReportWindow = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan AmbiguousReportNoticeWindow = TimeSpan.FromSeconds(30);
 
     private static readonly Regex ControlRequestedPattern = new(
         @"Control requested:\s*(?<reference>.+?)\s+value=(?<value>[^;]+);",
@@ -42,6 +44,12 @@ public partial class MainWindow
     private readonly ConcurrentDictionary<string, StablePositionEvidence> _stablePositionReferences =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentControlDiagnosticActivity =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAmbiguousReportNotice =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, ActivePositionCommand> _activePositionCommands =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -61,7 +69,7 @@ public partial class MainWindow
         _runtime.PointUpdated -= Runtime_PointUpdated;
         _runtime.PointUpdated += Runtime_PointUpdatedWithStablePositionFilter;
 
-        // ctlModel=StatusOnly is valid read-only model information, not a transport fault.
+        // Normalize expected control/report diagnostics before they reach the journal.
         _runtime.Diagnostic -= Runtime_Diagnostic;
         _runtime.Diagnostic += Runtime_DiagnosticWithControlModelClassification;
 
@@ -172,28 +180,71 @@ public partial class MainWindow
 
     private void Runtime_DiagnosticWithControlModelClassification(DiagnosticEntry entry)
     {
-        ObserveControlRequest(entry.Message);
+        var message = entry.Message ?? string.Empty;
+        ObserveControlRequest(message, entry.Source);
 
-        if (IsStatusOnlyControlInspection(entry.Message))
+        // A user-requested command is an audit event, not a warning. Repeated WARN rows
+        // previously made every normal Open/Close operation look like a fault.
+        if (IsControlRequestDiagnostic(message))
+        {
+            ForwardDiagnostic(entry, "INFO");
+            return;
+        }
+
+        if (IsControlCompletionDiagnostic(message))
+            RememberControlDiagnosticActivity(entry.Source);
+
+        // A verified smart fallback is a successful routing decision. Keep it visible as
+        // INFO, but do not raise a warning badge when all selected points are covered.
+        if (IsSafeRcbFallbackDiagnostic(message))
+        {
+            ForwardDiagnostic(entry, "INFO");
+            return;
+        }
+
+        // Some relays emit a control-related InformationReport without a uniquely usable
+        // RptID/DataSet identity around Operate/CommandTermination. The engine correctly
+        // refuses unsafe projection. During a known control window this is expected control
+        // traffic, so emit one compact INFO notice and coalesce repeats. Outside that window
+        // it remains WARN because an unrelated process report may have been discarded.
+        if (IsAmbiguousInformationReportDiagnostic(message))
+        {
+            if (HasRecentControlDiagnosticActivity(entry.Source))
+            {
+                if (ShouldEmitAmbiguousReportNotice(entry.Source))
+                {
+                    Runtime_Diagnostic(new DiagnosticEntry
+                    {
+                        Time = entry.Time,
+                        Level = "INFO",
+                        Source = entry.Source,
+                        Message = "A control-related InformationReport had no unique RptID/DataSet identity and was safely ignored; selected process points remain on their verified report/MMS acquisition paths."
+                    });
+                }
+                return;
+            }
+        }
+
+        if (IsStatusOnlyControlInspection(message))
         {
             Runtime_Diagnostic(new DiagnosticEntry
             {
                 Time = entry.Time,
                 Level = "INFO",
                 Source = entry.Source,
-                Message = $"{ExtractControlReference(entry.Message)}: ctlModel=StatusOnly; this is a read-only status object and command actions are disabled."
+                Message = $"{ExtractControlReference(message)}: ctlModel=StatusOnly; this is a read-only status object and command actions are disabled."
             });
             return;
         }
 
-        if (IsUnknownControlModelInspection(entry.Message))
+        if (IsUnknownControlModelInspection(message))
         {
             Runtime_Diagnostic(new DiagnosticEntry
             {
                 Time = entry.Time,
                 Level = "WARN",
                 Source = entry.Source,
-                Message = $"{ExtractControlReference(entry.Message)}: ctlModel could not be resolved; command actions remain disabled until the live model is known."
+                Message = $"{ExtractControlReference(message)}: ctlModel could not be resolved; command actions remain disabled until the live model is known."
             });
             return;
         }
@@ -201,7 +252,63 @@ public partial class MainWindow
         Runtime_Diagnostic(entry);
     }
 
-    private void ObserveControlRequest(string? message)
+    private void ForwardDiagnostic(DiagnosticEntry entry, string level)
+    {
+        Runtime_Diagnostic(new DiagnosticEntry
+        {
+            Time = entry.Time,
+            Level = level,
+            Source = entry.Source,
+            Message = entry.Message
+        });
+    }
+
+    private void RememberControlDiagnosticActivity(string? source)
+    {
+        var key = string.IsNullOrWhiteSpace(source) ? "IEC61850" : source.Trim();
+        _recentControlDiagnosticActivity[key] = DateTimeOffset.UtcNow;
+    }
+
+    private bool HasRecentControlDiagnosticActivity(string? source)
+    {
+        var key = string.IsNullOrWhiteSpace(source) ? "IEC61850" : source.Trim();
+        return _recentControlDiagnosticActivity.TryGetValue(key, out var observedUtc) &&
+               DateTimeOffset.UtcNow - observedUtc <= ControlRelatedReportWindow;
+    }
+
+    private bool ShouldEmitAmbiguousReportNotice(string? source)
+    {
+        var key = string.IsNullOrWhiteSpace(source) ? "IEC61850" : source.Trim();
+        var now = DateTimeOffset.UtcNow;
+        if (_lastAmbiguousReportNotice.TryGetValue(key, out var previous) &&
+            now - previous < AmbiguousReportNoticeWindow)
+        {
+            return false;
+        }
+
+        _lastAmbiguousReportNotice[key] = now;
+        return true;
+    }
+
+    private static bool IsControlRequestDiagnostic(string message)
+        => message.Contains("Control requested:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsControlCompletionDiagnostic(string message)
+        => message.Contains("Control Feedback confirmed:", StringComparison.OrdinalIgnoreCase) ||
+           message.Contains("Control rejected:", StringComparison.OrdinalIgnoreCase) ||
+           message.Contains("Control Control rejected:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSafeRcbFallbackDiagnostic(string message)
+        => message.Contains("Preferred RCB", StringComparison.OrdinalIgnoreCase) &&
+           message.Contains("smart fallback selected", StringComparison.OrdinalIgnoreCase) &&
+           message.Contains("avoid an unsafe/busy RCB", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsAmbiguousInformationReportDiagnostic(string message)
+        => message.Contains("InformationReport frame(s) were not routed", StringComparison.OrdinalIgnoreCase) &&
+           message.Contains("RptID/DataSet identity was ambiguous", StringComparison.OrdinalIgnoreCase) &&
+           message.Contains("refused unsafe DataSet projection", StringComparison.OrdinalIgnoreCase);
+
+    private void ObserveControlRequest(string? message, string? source)
     {
         if (string.IsNullOrWhiteSpace(message) || Dispatcher.HasShutdownStarted)
             return;
@@ -209,6 +316,8 @@ public partial class MainWindow
         var match = ControlRequestedPattern.Match(message);
         if (!match.Success)
             return;
+
+        RememberControlDiagnosticActivity(source);
 
         var requestedValue = NormalizeControlState(match.Groups["value"].Value);
         if (!requestedValue.Equals("Open", StringComparison.OrdinalIgnoreCase) &&
