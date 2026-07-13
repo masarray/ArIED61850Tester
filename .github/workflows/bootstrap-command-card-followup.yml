@@ -3,13 +3,17 @@ name: Bootstrap command card follow-up
 on:
   push:
     branches: [ fix/command-dispatch-icon-compact ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   bootstrap:
-    if: ${{ !contains(github.event.head_commit.message, '[followup-bootstrap]') }}
+    if: ${{ github.event_name == 'pull_request' || !contains(github.event.head_commit.message, '[followup-bootstrap]') }}
     runs-on: windows-latest
     steps:
       - name: Checkout branch
