@@ -1,0 +1,57 @@
+name: Run command card follow-up
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/command-dispatch-icon-compact
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Execute reviewed embedded patch
+        shell: bash
+        run: |
+          if [ ! -f .github/workflows/apply-command-card-followup-v2.yml ]; then
+            echo "APPLY_NEEDED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+          workflow = Path('.github/workflows/apply-command-card-followup-v2.yml').read_text(encoding='utf-8')
+          start = workflow.index("          python - <<'PY'\n") + len("          python - <<'PY'\n")
+          end = workflow.index("\n          PY", start)
+          script = textwrap.dedent(workflow[start:end])
+          exec(compile(script, 'embedded-command-card-followup.py', 'exec'))
+          PY
+          echo "APPLY_NEEDED=true" >> "$GITHUB_ENV"
+
+      - name: Commit source changes
+        if: env.APPLY_NEEDED == 'true'
+        shell: pwsh
+        run: |
+          git rm .github/workflows/run-command-card-followup-pr.yml
+          if (Test-Path '.github/workflows/apply-command-card-followup-v2.yml') { git rm .github/workflows/apply-command-card-followup-v2.yml }
+          if (Test-Path '.github/workflows/apply-command-card-followup.yml') { git rm .github/workflows/apply-command-card-followup.yml }
+          if (Test-Path '.github/workflows/bootstrap-command-card-followup.yml') { git rm .github/workflows/bootstrap-command-card-followup.yml }
+          if (Test-Path '.github/command-card-followup.trigger') { git rm .github/command-card-followup.trigger }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MainWindow.xaml MainWindow.xaml.cs Services/NativeIec61850Client.cs
+          git commit -m 'fix: deterministic command dispatch and compact relay status icon [command-card-pr-applied]'
+          git push origin HEAD:fix/command-dispatch-icon-compact
