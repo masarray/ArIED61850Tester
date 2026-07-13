@@ -1,5 +1,5 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
-using System.Globalization;
 using System.Text.RegularExpressions;
 using ArIED61850Tester.Models;
 
@@ -7,34 +7,37 @@ namespace ArIED61850Tester;
 
 public partial class MainWindow
 {
-    private const double ImmediatePositionFeedbackEchoThresholdMs = 150d;
-    private static readonly TimeSpan StableFeedbackGuardWindow = TimeSpan.FromMilliseconds(750);
-    private static readonly TimeSpan StableFeedbackStateLifetime = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CswiCloseDebounce = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan ControlFeedbackStateLifetime = TimeSpan.FromSeconds(15);
 
     private static readonly Regex ControlRequestedPattern = new(
         @"Control requested:\s*(?<reference>.+?)\s+value=(?<value>[^;]+);",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    private static readonly Regex ControlFeedbackPattern = new(
-        @"Control Feedback confirmed:\s*(?<reference>[^;]+);.*?requested=(?<requested>[^;]+);\s*feedback=(?<feedbackValue>[^;]+);.*?\bfeedback=(?<feedbackMs>\d+(?:[\.,]\d+)?)\s*ms(?:;|$)",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private sealed class PendingCswiCloseSnapshot
+    {
+        public required Iec61850PointSnapshot Latest { get; set; }
+        public CancellationTokenSource Cancellation { get; } = new();
+        public object Sync { get; } = new();
+    }
 
-    private sealed class ControlFeedbackStabilityState
+    private sealed class ActivePositionCloseCommand
     {
         public required string Key { get; init; }
-        public required string Reference { get; init; }
         public required SignalDefinition Signal { get; init; }
         public required string BeforeValue { get; init; }
-        public required string RequestedValue { get; set; }
         public DateTimeOffset StartedUtc { get; init; } = DateTimeOffset.UtcNow;
-        public DateTimeOffset? EchoSuppressedAtUtc { get; set; }
-        public bool SuppressImmediateTarget { get; set; }
-        public bool SawNonTargetAfterEcho { get; set; }
         public bool Restoring { get; set; }
         public PropertyChangedEventHandler? PropertyChangedHandler { get; set; }
     }
 
-    private readonly Dictionary<string, ControlFeedbackStabilityState> _controlFeedbackStability =
+    private readonly ConcurrentDictionary<string, PendingCswiCloseSnapshot> _pendingCswiCloseSnapshots =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _stableClosedPositionReferences =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, ActivePositionCloseCommand> _activePositionCloseCommands =
         new(StringComparer.OrdinalIgnoreCase);
 
     private bool _controlDiagnosticNormalizerInstalled;
@@ -47,18 +50,100 @@ public partial class MainWindow
 
         _controlDiagnosticNormalizerInstalled = true;
 
-        // The native Smart Control service deliberately rejects ctlModel=StatusOnly
-        // when asked to open an executable command session. For the explorer this is
-        // valid live-model information, not a communication failure. Replace the
-        // original diagnostic subscriber after the window is ready so status-only
-        // objects do not raise a red application error.
+        // Keep the normal runtime batching path, but filter the short CSWI Close pulse
+        // before it reaches the Value Viewer or command-row feedback binding.
+        _runtime.PointUpdated -= Runtime_PointUpdated;
+        _runtime.PointUpdated += Runtime_PointUpdatedWithStablePositionFilter;
+
+        // ctlModel=StatusOnly is valid read-only model information, not a transport fault.
         _runtime.Diagnostic -= Runtime_Diagnostic;
         _runtime.Diagnostic += Runtime_DiagnosticWithControlModelClassification;
     }
 
+    private void Runtime_PointUpdatedWithStablePositionFilter(Iec61850PointSnapshot snapshot)
+    {
+        var reference = snapshot.Point.IecReference;
+        if (!IsPositionStatusReference(reference))
+        {
+            Runtime_PointUpdated(snapshot);
+            return;
+        }
+
+        var key = NormalizeReference(reference);
+        var value = NormalizeControlState(snapshot.Value);
+
+        if (!value.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            _stableClosedPositionReferences.TryRemove(key, out _);
+            CancelPendingCswiClose(key);
+            Runtime_PointUpdated(snapshot);
+            return;
+        }
+
+        // XCBR/XSWI position is equipment feedback and remains immediate. Only CSWI.Pos
+        // is debounced because this relay exposes a short command-object Close echo there.
+        if (!IsCswiPositionStatusReference(reference))
+        {
+            _stableClosedPositionReferences[key] = DateTimeOffset.UtcNow;
+            Runtime_PointUpdated(snapshot);
+            return;
+        }
+
+        if (_pendingCswiCloseSnapshots.TryGetValue(key, out var existing))
+        {
+            lock (existing.Sync)
+                existing.Latest = snapshot;
+            return;
+        }
+
+        var pending = new PendingCswiCloseSnapshot { Latest = snapshot };
+        if (!_pendingCswiCloseSnapshots.TryAdd(key, pending))
+        {
+            if (_pendingCswiCloseSnapshots.TryGetValue(key, out existing))
+            {
+                lock (existing.Sync)
+                    existing.Latest = snapshot;
+            }
+            return;
+        }
+
+        _ = ReleaseStableCswiCloseAsync(key, pending);
+    }
+
+    private async Task ReleaseStableCswiCloseAsync(string key, PendingCswiCloseSnapshot pending)
+    {
+        try
+        {
+            await Task.Delay(CswiCloseDebounce, pending.Cancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!_pendingCswiCloseSnapshots.TryRemove(key, out var active) || !ReferenceEquals(active, pending))
+            return;
+
+        Iec61850PointSnapshot stableSnapshot;
+        lock (pending.Sync)
+            stableSnapshot = pending.Latest;
+
+        _stableClosedPositionReferences[key] = DateTimeOffset.UtcNow;
+        Runtime_PointUpdated(stableSnapshot);
+    }
+
+    private void CancelPendingCswiClose(string key)
+    {
+        if (!_pendingCswiCloseSnapshots.TryRemove(key, out var pending))
+            return;
+
+        pending.Cancellation.Cancel();
+        pending.Cancellation.Dispose();
+    }
+
     private void Runtime_DiagnosticWithControlModelClassification(DiagnosticEntry entry)
     {
-        ObserveControlFeedbackDiagnostic(entry);
+        ObserveControlRequest(entry.Message);
 
         if (IsStatusOnlyControlInspection(entry.Message))
         {
@@ -87,140 +172,115 @@ public partial class MainWindow
         Runtime_Diagnostic(entry);
     }
 
-    private void ObserveControlFeedbackDiagnostic(DiagnosticEntry entry)
+    private void ObserveControlRequest(string? message)
     {
-        var message = entry.Message ?? string.Empty;
-        if (message.Length == 0 || Dispatcher.HasShutdownStarted)
+        if (string.IsNullOrWhiteSpace(message) || Dispatcher.HasShutdownStarted)
             return;
 
-        var requested = ControlRequestedPattern.Match(message);
-        if (requested.Success)
-        {
-            _ = Dispatcher.InvokeAsync(() => BeginControlFeedbackStability(
-                requested.Groups["reference"].Value,
-                requested.Groups["value"].Value));
-            return;
-        }
-
-        var feedback = ControlFeedbackPattern.Match(message);
-        if (!feedback.Success)
+        var match = ControlRequestedPattern.Match(message);
+        if (!match.Success)
             return;
 
-        _ = Dispatcher.InvokeAsync(() => ClassifyImmediateControlFeedback(
-            feedback.Groups["reference"].Value,
-            feedback.Groups["requested"].Value,
-            feedback.Groups["feedbackValue"].Value,
-            feedback.Groups["feedbackMs"].Value));
+        var requestedValue = NormalizeControlState(match.Groups["value"].Value);
+        if (!requestedValue.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _ = Dispatcher.InvokeAsync(() => BeginPositionCloseCommand(
+            match.Groups["reference"].Value,
+            requestedValue));
     }
 
-    private void BeginControlFeedbackStability(string reference, string requestedValue)
+    private void BeginPositionCloseCommand(string reference, string requestedValue)
     {
         var key = NormalizeReference(reference);
         var signal = FindCommandSignal(reference);
-        if (string.IsNullOrWhiteSpace(key) || signal == null)
+        if (string.IsNullOrWhiteSpace(key) || signal == null || !IsPositionCommand(signal) ||
+            !requestedValue.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+        {
             return;
+        }
 
-        RemoveControlFeedbackStability(key);
+        RemovePositionCloseCommand(key);
 
-        var state = new ControlFeedbackStabilityState
+        var state = new ActivePositionCloseCommand
         {
             Key = key,
-            Reference = reference.Trim(),
             Signal = signal,
-            BeforeValue = NormalizeControlState(signal.ControlCurrentValue),
-            RequestedValue = NormalizeControlState(requestedValue)
+            BeforeValue = NormalizeControlState(signal.ControlCurrentValue)
         };
 
-        PropertyChangedEventHandler handler = (_, args) =>
-        {
-            if (args.PropertyName == nameof(SignalDefinition.ControlCurrentValue))
-                HandleControlCurrentValueChanged(state);
-        };
+        PropertyChangedEventHandler handler = (_, args) => HandlePositionCloseCommandPropertyChanged(state, args.PropertyName);
         state.PropertyChangedHandler = handler;
         signal.PropertyChanged += handler;
-        _controlFeedbackStability[key] = state;
-        _ = ExpireControlFeedbackStabilityAsync(state);
+        _activePositionCloseCommands[key] = state;
+
+        // A previous Closed state must not authorize the new command result. Only a fresh
+        // live position sample arriving after this request may confirm the new Close.
+        var feedbackKey = ResolveControlFeedbackKey(signal);
+        if (!string.IsNullOrWhiteSpace(feedbackKey))
+            _stableClosedPositionReferences.TryRemove(feedbackKey, out _);
+
+        _ = ExpirePositionCloseCommandAsync(state);
     }
 
-    private void ClassifyImmediateControlFeedback(
-        string reference,
-        string requestedValue,
-        string feedbackValue,
-        string feedbackMilliseconds)
+    private void HandlePositionCloseCommandPropertyChanged(ActivePositionCloseCommand state, string? propertyName)
     {
-        var key = NormalizeReference(reference);
-        if (!_controlFeedbackStability.TryGetValue(key, out var state))
+        if (state.Restoring || !_activePositionCloseCommands.TryGetValue(state.Key, out var active) ||
+            !ReferenceEquals(active, state))
         {
-            BeginControlFeedbackStability(reference, requestedValue);
-            _controlFeedbackStability.TryGetValue(key, out state);
+            return;
         }
 
-        if (state == null)
+        if (propertyName == nameof(SignalDefinition.ControlCurrentValue))
+        {
+            var current = NormalizeControlState(state.Signal.ControlCurrentValue);
+            if (!current.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (HasFreshStableCloseEvidence(state))
+            {
+                RemovePositionCloseCommand(state.Key);
+                state.Signal.ControlLastResult = "Stable process feedback confirmed: Closed.";
+                return;
+            }
+
+            RestorePreCommandValue(state);
+            return;
+        }
+
+        if (propertyName != nameof(SignalDefinition.ControlLastResult))
             return;
 
-        state.RequestedValue = NormalizeControlState(requestedValue);
-        var observedValue = NormalizeControlState(feedbackValue);
-        var millisecondsText = feedbackMilliseconds.Replace(',', '.');
-        if (!double.TryParse(millisecondsText, NumberStyles.Float, CultureInfo.InvariantCulture, out var elapsedMs))
+        var result = state.Signal.ControlLastResult ?? string.Empty;
+        if (IsControlFailureResult(result))
+        {
+            RemovePositionCloseCommand(state.Key);
             return;
+        }
 
-        // A position Close that is reported within only a few milliseconds is normally
-        // the CSWI command-object echo, not settled primary-equipment feedback. The live
-        // report/poll stream remains authoritative for the stable final state. Open is
-        // intentionally not delayed because this relay reports genuine Open feedback fast.
-        state.SuppressImmediateTarget =
-            IsPositionCommand(state.Signal) &&
-            state.RequestedValue.Equals("Closed", StringComparison.OrdinalIgnoreCase) &&
-            observedValue.Equals(state.RequestedValue, StringComparison.OrdinalIgnoreCase) &&
-            !state.BeforeValue.Equals(state.RequestedValue, StringComparison.OrdinalIgnoreCase) &&
-            elapsedMs <= ImmediatePositionFeedbackEchoThresholdMs;
+        if (!HasFreshStableCloseEvidence(state) &&
+            result.Contains("Feedback confirmed", StringComparison.OrdinalIgnoreCase) &&
+            result.Contains("Closed", StringComparison.OrdinalIgnoreCase))
+        {
+            state.Restoring = true;
+            try
+            {
+                state.Signal.ControlLastResult = "Command accepted — waiting for stable Closed process feedback…";
+            }
+            finally
+            {
+                state.Restoring = false;
+            }
+        }
     }
 
-    private void HandleControlCurrentValueChanged(ControlFeedbackStabilityState state)
+    private void RestorePreCommandValue(ActivePositionCloseCommand state)
     {
-        if (state.Restoring || !_controlFeedbackStability.TryGetValue(state.Key, out var currentState) ||
-            !ReferenceEquals(state, currentState))
-        {
-            return;
-        }
-
-        var currentValue = NormalizeControlState(state.Signal.ControlCurrentValue);
-        var isRequestedTarget = currentValue.Equals(state.RequestedValue, StringComparison.OrdinalIgnoreCase);
-
-        if (!isRequestedTarget)
-        {
-            if (state.EchoSuppressedAtUtc.HasValue)
-                state.SawNonTargetAfterEcho = true;
-            return;
-        }
-
-        if (state.SuppressImmediateTarget)
-        {
-            state.SuppressImmediateTarget = false;
-            SuppressCommandObjectEcho(state);
-            return;
-        }
-
-        if (state.EchoSuppressedAtUtc.HasValue &&
-            !state.SawNonTargetAfterEcho &&
-            DateTimeOffset.UtcNow - state.EchoSuppressedAtUtc.Value < StableFeedbackGuardWindow)
-        {
-            SuppressCommandObjectEcho(state);
-            return;
-        }
-
-        CompleteStableControlFeedback(state, currentValue);
-    }
-
-    private void SuppressCommandObjectEcho(ControlFeedbackStabilityState state)
-    {
-        state.EchoSuppressedAtUtc ??= DateTimeOffset.UtcNow;
         state.Restoring = true;
         try
         {
             state.Signal.ControlCurrentValue = state.BeforeValue;
-            state.Signal.ControlLastResult =
-                $"Command accepted — waiting for stable {state.RequestedValue} process feedback…";
+            state.Signal.ControlLastResult = "Command accepted — waiting for stable Closed process feedback…";
         }
         finally
         {
@@ -228,32 +288,36 @@ public partial class MainWindow
         }
     }
 
-    private void CompleteStableControlFeedback(ControlFeedbackStabilityState state, string currentValue)
+    private bool HasFreshStableCloseEvidence(ActivePositionCloseCommand state)
     {
-        var hadSuppressedEcho = state.EchoSuppressedAtUtc.HasValue;
-        RemoveControlFeedbackStability(state.Key);
-        if (hadSuppressedEcho)
-            state.Signal.ControlLastResult = $"Stable process feedback confirmed: {currentValue}.";
+        var feedbackKey = ResolveControlFeedbackKey(state.Signal);
+        return !string.IsNullOrWhiteSpace(feedbackKey) &&
+               _stableClosedPositionReferences.TryGetValue(feedbackKey, out var observedUtc) &&
+               observedUtc >= state.StartedUtc;
     }
 
-    private async Task ExpireControlFeedbackStabilityAsync(ControlFeedbackStabilityState state)
+    private static string ResolveControlFeedbackKey(SignalDefinition signal)
     {
-        await Task.Delay(StableFeedbackStateLifetime).ConfigureAwait(false);
+        var reference = string.IsNullOrWhiteSpace(signal.ControlStatusReference)
+            ? $"{signal.ObjectReference}.stVal"
+            : signal.ControlStatusReference;
+        return NormalizeReference(reference);
+    }
+
+    private async Task ExpirePositionCloseCommandAsync(ActivePositionCloseCommand state)
+    {
+        await Task.Delay(ControlFeedbackStateLifetime).ConfigureAwait(false);
         if (Dispatcher.HasShutdownStarted)
             return;
 
         await Dispatcher.InvokeAsync(() =>
         {
-            if (!_controlFeedbackStability.TryGetValue(state.Key, out var active) || !ReferenceEquals(active, state))
+            if (!_activePositionCloseCommands.TryGetValue(state.Key, out var active) || !ReferenceEquals(active, state))
                 return;
 
-            var hadSuppressedEcho = state.EchoSuppressedAtUtc.HasValue;
-            RemoveControlFeedbackStability(state.Key);
-            if (hadSuppressedEcho)
-            {
-                state.Signal.ControlLastResult =
-                    $"Command accepted, but stable {state.RequestedValue} process feedback was not confirmed within {StableFeedbackStateLifetime.TotalSeconds:0} s.";
-            }
+            RemovePositionCloseCommand(state.Key);
+            state.Signal.ControlLastResult =
+                $"Command accepted, but stable Closed process feedback was not confirmed within {ControlFeedbackStateLifetime.TotalSeconds:0} s.";
         });
     }
 
@@ -266,9 +330,9 @@ public partial class MainWindow
                 .Equals(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void RemoveControlFeedbackStability(string key)
+    private void RemovePositionCloseCommand(string key)
     {
-        if (!_controlFeedbackStability.Remove(key, out var state))
+        if (!_activePositionCloseCommands.Remove(key, out var state))
             return;
 
         if (state.PropertyChangedHandler != null)
@@ -280,6 +344,31 @@ public partial class MainWindow
         var reference = (signal.ObjectReference ?? string.Empty).Trim().Replace('$', '.').TrimEnd('.');
         return reference.EndsWith(".Pos", StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsPositionStatusReference(string? reference)
+    {
+        var normalized = (reference ?? string.Empty).Trim().Replace('$', '.').TrimEnd('.');
+        return normalized.EndsWith(".Pos.stVal", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCswiPositionStatusReference(string? reference)
+    {
+        var normalized = (reference ?? string.Empty).Trim().Replace('$', '.');
+        if (!normalized.EndsWith(".Pos.stVal", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var slash = normalized.LastIndexOf('/');
+        var afterSlash = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        var dot = afterSlash.IndexOf('.');
+        var logicalNode = dot > 0 ? afterSlash[..dot] : afterSlash;
+        return logicalNode.Contains("CSWI", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsControlFailureResult(string result)
+        => result.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+           result.Contains("rejected", StringComparison.OrdinalIgnoreCase) ||
+           result.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
+           result.Contains("unsupported", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeControlState(string? value)
     {
