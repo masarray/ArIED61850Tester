@@ -766,77 +766,85 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task ExecuteQuickControlAsync(SignalDefinition signal, string requestedValue)
     {
-        var device = SelectedDevice;
-        if (device == null || signal.ControlIsBusy)
-            return;
+        var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
+        if (device == null)
+  return;
+
+        if (signal.ControlIsBusy)
+        {
+  SetStatus($"{device.Name}: {signal.Name} command is already in progress.");
+  return;
+        }
 
         if (!CommandTestMode && !LiveControlArmed)
         {
-            signal.ControlLastResult = "Enable Live control armed before sending a command.";
-            SetStatus("Live control is not armed. Review the selected IED and enable the Command Panel safety switch.");
-            return;
-        }
-
-        if (!device.IsConnected)
-        {
-            SetStatus($"{device.Name}: connecting before control…");
-            var connected = device.HasDiscoveryCache && device.Signals.Count > 0
-                ? await ConnectUsingSavedModelAsync(device)
-                : await ConnectAndConfigureDeviceAsync(device, openWizard: false);
-            if (!connected)
-                return;
+  signal.ControlLastResult = "Enable Live control armed before sending a command.";
+  SetStatus("Live control is not armed. Review the selected IED and enable the Command Panel safety switch.");
+  return;
         }
 
         signal.ControlIsBusy = true;
-        signal.ControlLastResult = $"Sending {requestedValue}…";
+        signal.ControlLastResult = $"Dispatching {requestedValue}…";
+        SetStatus($"{device.Name}: dispatching {signal.Name} = {requestedValue}…");
+        await Dispatcher.Yield(DispatcherPriority.Render);
+
         try
         {
-            if (signal.ControlModelText == "Auto-detect" || signal.ControlCurrentValue == "-")
-            {
-                var capabilities = await _runtime.InspectControlAsync(
-                    device.DeviceId,
-                    signal,
-                    _applicationCancellation.Token);
-                signal.ControlCurrentValue = capabilities.CurrentValue;
-                device.RefreshCommandSignalProjection();
-                RebuildControlFeedbackIndex(device);
-            }
+  if (!device.IsConnected)
+  {
+      SetStatus($"{device.Name}: connecting before control…");
+      var connected = device.HasDiscoveryCache && device.Signals.Count > 0
+          ? await ConnectUsingSavedModelAsync(device)
+          : await ConnectAndConfigureDeviceAsync(device, openWizard: false);
+      if (!connected)
+          return;
+  }
 
-            var result = await _runtime.ExecuteControlAsync(
-                device.DeviceId,
-                new Iec61850ControlCommandRequest
-                {
-                    Signal = signal,
-                    ValueText = requestedValue,
-                    InterlockCheck = CommandInterlockCheck,
-                    SynchroCheck = CommandSynchroCheck,
-                    TestMode = CommandTestMode,
-                    FeedbackTimeoutMs = signal.IsPositionControl ? 12000 :
-                        (signal.IsRaiseOnlyControl || signal.IsLowerOnlyControl || signal.IsRaiseLowerControl) ? 15000 : 8000,
-                    CommandTerminationTimeoutMs = 10000,
-                    OriginCategory = "Maintenance"
-                },
-                _applicationCancellation.Token);
+  if (signal.ControlModelText == "Auto-detect" || signal.ControlCurrentValue == "-")
+  {
+      var capabilities = await _runtime.InspectControlAsync(device.DeviceId, signal, _applicationCancellation.Token);
+      signal.ControlCurrentValue = capabilities.CurrentValue;
+      device.RefreshCommandSignalProjection();
+      RebuildControlFeedbackIndex(device);
+  }
 
-            if (!string.IsNullOrWhiteSpace(result.FeedbackValue) && result.FeedbackValue != "-")
-                signal.ControlCurrentValue = result.FeedbackValue;
+  var result = await _runtime.ExecuteControlAsync(
+      device.DeviceId,
+      new Iec61850ControlCommandRequest
+      {
+          Signal = signal,
+          ValueText = requestedValue,
+          InterlockCheck = CommandInterlockCheck,
+          SynchroCheck = CommandSynchroCheck,
+          TestMode = CommandTestMode,
+          FeedbackTimeoutMs = signal.IsPositionControl ? 12000 :
+              (signal.IsRaiseOnlyControl || signal.IsLowerOnlyControl || signal.IsRaiseLowerControl) ? 15000 : 8000,
+          CommandTerminationTimeoutMs = 10000,
+          OriginCategory = "Maintenance"
+      },
+      _applicationCancellation.Token);
 
-            signal.ControlLastResult = BuildQuickControlResult(result);
-            SetStatus($"{device.Name}: {signal.Name} — {signal.ControlLastResult}");
+  if (!string.IsNullOrWhiteSpace(result.FeedbackValue) && result.FeedbackValue != "-")
+      signal.ControlCurrentValue = result.FeedbackValue;
+
+  signal.ControlLastResult = BuildQuickControlResult(result);
+  SetStatus($"{device.Name}: {signal.Name} — {signal.ControlLastResult}");
         }
         catch (OperationCanceledException)
         {
-            signal.ControlLastResult = "Command cancelled.";
+  signal.ControlLastResult = "Command cancelled.";
+  SetStatus($"{device.Name}: {signal.Name} command cancelled.");
         }
         catch (Exception ex)
         {
-            signal.ControlLastResult = $"Command failed: {ex.Message}";
-            AddLog("ERROR", device.Name, $"Quick control failed for {signal.ObjectReference}: {ex}");
-            MarkDiagnosticAlert();
+  signal.ControlLastResult = $"Command failed: {ex.Message}";
+  AddLog("ERROR", device.Name, $"Quick control failed for {signal.ObjectReference}: {ex}");
+  SetStatus($"{device.Name}: {signal.Name} command failed — {ex.Message}");
+  MarkDiagnosticAlert();
         }
         finally
         {
-            signal.ControlIsBusy = false;
+  signal.ControlIsBusy = false;
         }
     }
 
