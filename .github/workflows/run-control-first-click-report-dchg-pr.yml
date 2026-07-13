@@ -18,6 +18,11 @@ jobs:
           ref: fix/control-first-click-report-dchg
           fetch-depth: 0
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Apply reviewed patch from source workflow
         shell: bash
         run: |
@@ -36,10 +41,11 @@ jobs:
               'Services/NativeIec61850Client.cs',
           ]:
               path = Path(name)
-              path.write_text(path.read_text(encoding='utf-8').replace('\r\n', '\n'), encoding='utf-8', newline='\n')
+              text = path.read_text(encoding='utf-8')
+              path.write_text(text, encoding='utf-8', newline='\n')
           PY
-          git apply --check /tmp/control-first-click.patch
-          git apply /tmp/control-first-click.patch
+          git apply --check --ignore-space-change --ignore-whitespace --recount /tmp/control-first-click.patch
+          git apply --ignore-space-change --ignore-whitespace --recount /tmp/control-first-click.patch
 
       - name: Commit source changes
         shell: pwsh
