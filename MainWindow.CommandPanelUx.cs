@@ -105,7 +105,7 @@ public partial class MainWindow
 
         _commandPanelUxTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromMilliseconds(350)
+            Interval = TimeSpan.FromMilliseconds(500)
         };
         _commandPanelUxTimer.Tick += CommandPanelUxTimer_Tick;
         _commandPanelUxTimer.Start();
@@ -122,41 +122,19 @@ public partial class MainWindow
 
     private void ApplyCommandPanelVisualTweaks()
     {
-        foreach (var textBlock in FindVisualChildren<TextBlock>(this))
-        {
-            if (textBlock.Text?.StartsWith(
-                    "Current process value is shown before command",
-                    StringComparison.OrdinalIgnoreCase) == true)
-            {
-                textBlock.Visibility = Visibility.Collapsed;
-            }
-        }
-
+        // Only attach stable bindings to realized controls. Do not mutate row heights,
+        // columns, or child visibility after the Expander has painted; that was the
+        // source of the first-open layout flicker.
         var commandGrid = FindVisualChildren<DataGrid>(this).FirstOrDefault(IsCommandDataGrid);
         if (commandGrid == null)
             return;
 
-        commandGrid.RowHeight = 60;
-        commandGrid.MinRowHeight = 56;
-
         foreach (var column in commandGrid.Columns)
         {
-            var header = column.Header?.ToString() ?? string.Empty;
-            if (header.Equals("IEC Telegram", StringComparison.OrdinalIgnoreCase))
+            if ((column.Header?.ToString() ?? string.Empty)
+                .Equals("Control model", StringComparison.OrdinalIgnoreCase))
             {
-                column.Width = new DataGridLength(260);
-                column.MinWidth = 230;
-            }
-            else if (header.Equals("Control model", StringComparison.OrdinalIgnoreCase))
-            {
-                column.Width = new DataGridLength(132);
-                column.MinWidth = 112;
                 ConfigureControlModelColumn(column);
-            }
-            else if (header.Equals("Control", StringComparison.OrdinalIgnoreCase))
-            {
-                column.Width = new DataGridLength(1, DataGridLengthUnitType.Star);
-                column.MinWidth = 390;
             }
         }
 
@@ -280,15 +258,19 @@ public partial class MainWindow
 
         try
         {
-            foreach (var device in Devices.Where(device => device.IsConnected && device.CommandSignals.Count > 0))
+            foreach (var device in Devices.Where(device => device.IsConnected && device.SelectedControlSignalCount > 0))
             {
-                var candidates = device.CommandSignals
+                var candidates = device.Signals
+                    .Where(signal => signal.IsSelected && signal.IsValidControlObject)
                     .Where(signal => !signal.ControlModelResolved)
                     .Where(signal => _controlModelPreloadAttempts.Add(ControlModelAttemptKey(device, signal)))
                     .ToArray();
 
                 if (candidates.Length == 0)
+                {
+                    device.RefreshCommandSignalProjection();
                     continue;
+                }
 
                 using var throttle = new SemaphoreSlim(3, 3);
                 await Task.WhenAll(candidates.Select(async signal =>
@@ -324,6 +306,7 @@ public partial class MainWindow
                     }
                 }));
 
+                device.RefreshCommandSignalProjection();
                 RebuildControlFeedbackIndex(device);
             }
         }

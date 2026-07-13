@@ -586,8 +586,8 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="9"
-                                Margin="4,2">
+                                CornerRadius="0"
+                                Margin="0">
                             <DataGridCellsPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>

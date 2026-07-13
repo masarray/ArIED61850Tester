@@ -545,8 +545,13 @@ public sealed class Iec61850MonitorRuntime : IAsyncDisposable
 
                 if (result.CoveredReferences.Count == 0)
                 {
-                    Log("WARN", session.Device.Name,
-                        $"Report monitor started for {plan.DisplayReference}, but exact DataSet member references were not returned. Points remain on safe polling fallback until live reports prove their mapping.");
+                    var recoveryWillRun = !result.UsedDynamicDataSet &&
+                                          plan.AllowDynamicDataSetWrites &&
+                                          plan.Bindings.Count > 0;
+                    Log(recoveryWillRun ? "INFO" : "WARN", session.Device.Name,
+                        recoveryWillRun
+                            ? $"Static report candidate {plan.DisplayReference} returned no exact selected-member coverage; Smart Auto will attempt dynamic report recovery before retaining MMS polling."
+                            : $"Report monitor started for {plan.DisplayReference}, but exact DataSet member references were not returned. Points remain on safe polling fallback until live reports prove their mapping.");
                 }
 
                 Log("INFO", session.Device.Name,
@@ -559,7 +564,6 @@ public sealed class Iec61850MonitorRuntime : IAsyncDisposable
                 // before leaving those points on cyclic MMS polling.
                 if (!result.UsedDynamicDataSet &&
                     plan.AllowDynamicDataSetWrites &&
-                    result.CoveredReferences.Count > 0 &&
                     coveredPoints.Count < plan.Bindings.Count)
                 {
                     var coveredKeys = coveredPoints
@@ -578,7 +582,9 @@ public sealed class Iec61850MonitorRuntime : IAsyncDisposable
                     if (uncovered.Count > 0)
                     {
                         Log("INFO", session.Device.Name,
-                            $"Static DataSet covered {coveredPoints.Count}/{plan.Bindings.Count} selected points; Smart Auto queued dynamic reporting for {uncovered.Count} uncovered point(s).");
+                            coveredPoints.Count == 0
+                                ? $"Static report candidate returned no exact selected-member coverage; Smart Auto queued dynamic reporting for all {uncovered.Count} point(s) before allowing MMS polling."
+                                : $"Static DataSet covered {coveredPoints.Count}/{plan.Bindings.Count} selected points; Smart Auto queued dynamic reporting for {uncovered.Count} uncovered point(s).");
                     }
                 }
             }

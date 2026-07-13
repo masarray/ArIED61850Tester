@@ -104,27 +104,11 @@ internal static class GridUxBehavior
 
     private static void TryInstallMainWindowUx(MainWindow owner, MainWindowState state)
     {
-        if (!state.IedListInstalled)
-        {
-            var list = FindVisualChildren<ListBox>(owner)
-                .FirstOrDefault(candidate => ReferenceEquals(candidate.ItemsSource, owner.Devices));
-            if (list != null)
-            {
-                InstallCompactIedList(list);
-                state.IedListInstalled = true;
-            }
-        }
-
-        if (!state.CommandGridInstalled)
-        {
-            var commandGrid = FindVisualChildren<DataGrid>(owner)
-                .FirstOrDefault(IsCommandGrid);
-            if (commandGrid != null)
-            {
-                InstallCommandGridCleanup(commandGrid);
-                state.CommandGridInstalled = true;
-            }
-        }
+        // IED cards and Command Panel rows are now final XAML templates. Do not
+        // re-parent or remove their children after render; that previously blocked
+        // button hit-testing and made the Expander visibly reflow on first open.
+        state.IedListInstalled = true;
+        state.CommandGridInstalled = true;
 
         if (!state.GlobalGridInstalled)
         {
@@ -137,7 +121,7 @@ internal static class GridUxBehavior
             }
         }
 
-        if (state.IedListInstalled && state.CommandGridInstalled && state.GlobalGridInstalled)
+        if (state.GlobalGridInstalled)
             state.RetryTimer?.Stop();
     }
 
