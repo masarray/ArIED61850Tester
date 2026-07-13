@@ -147,6 +147,137 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
 
+    private async void OpenScl_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open IEC 61850 SCL",
+            Filter = "IEC 61850 SCL (*.scd;*.cid;*.icd;*.iid;*.ssd)|*.scd;*.cid;*.icd;*.iid;*.ssd|XML SCL (*.xml)|*.xml|All files (*.*)|*.*",
+            CheckFileExists = true,
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        var sourceName = Path.GetFileName(dialog.FileName);
+        SetStatus($"Reading IED endpoints from {sourceName}…");
+        try
+        {
+            var result = await SclImportService.LoadAsync(dialog.FileName, _applicationCancellation.Token);
+            foreach (var warning in result.Warnings.Take(25))
+                AddLog("WARN", "SCL", warning);
+            if (result.Warnings.Count > 25)
+                AddLog("WARN", "SCL", $"{result.Warnings.Count - 25} additional SCL warning(s) were omitted from the live log.");
+
+            if (result.Endpoints.Count == 0)
+            {
+                var reason = result.ConnectedAccessPointCount == 0
+                    ? "No ConnectedAP communication entries were found."
+                    : "ConnectedAP entries were found, but none contained a valid IP address.";
+                SetStatus($"{sourceName}: no usable IEC 61850 MMS endpoints. {reason}");
+                AddLog("WARN", "SCL", $"{sourceName}: {reason}");
+                MessageBox.Show(
+                    this,
+                    $"No usable IEC 61850 MMS endpoint was found in {sourceName}.\n\n{reason}\n\nThe file may contain only an IED template without a Communication section.",
+                    "Open SCL",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var added = 0;
+            var refreshed = 0;
+            var retained = 0;
+            Iec61850MonitorDevice? firstImported = null;
+
+            foreach (var endpoint in result.Endpoints)
+            {
+                var device = Devices.FirstOrDefault(item =>
+                    item.IpAddress.Equals(endpoint.IpAddress, StringComparison.OrdinalIgnoreCase) &&
+                    item.Port == endpoint.Port);
+
+                if (device == null)
+                {
+                    device = new Iec61850MonitorDevice
+                    {
+                        Name = endpoint.IedName,
+                        IdentitySource = $"SCL • {sourceName}",
+                        LogicalDeviceSummary = BuildSclEndpointSummary(endpoint),
+                        IpAddress = endpoint.IpAddress,
+                        Port = endpoint.Port,
+                        AllowDynamicDataSetWrites = true,
+                        Status = "SCL endpoint ready",
+                        Detail = $"Imported from {sourceName}. Press Play to connect and verify the live IEC 61850 model.",
+                        AcquisitionMode = "SCL • live discovery pending"
+                    };
+                    Devices.Add(device);
+                    added++;
+                }
+                else if (!device.IsConnected && !device.IsBusy && !device.HasDiscoveryCache)
+                {
+                    if (string.IsNullOrWhiteSpace(device.Name) ||
+                        device.Name.Equals(device.IpAddress, StringComparison.OrdinalIgnoreCase))
+                    {
+                        device.Name = endpoint.IedName;
+                    }
+                    device.IdentitySource = $"SCL • {sourceName}";
+                    device.LogicalDeviceSummary = BuildSclEndpointSummary(endpoint);
+                    device.Status = "SCL endpoint ready";
+                    device.Detail = $"Endpoint refreshed from {sourceName}. Press Play to connect and verify the live IEC 61850 model.";
+                    device.AcquisitionMode = "SCL • live discovery pending";
+                    device.RefreshComputed();
+                    refreshed++;
+                }
+                else
+                {
+                    // Preserve active sessions and successful discovery caches. SCL is an
+                    // endpoint-import path, never authority over a verified live model.
+                    retained++;
+                }
+
+                firstImported ??= device;
+            }
+
+            if (firstImported != null)
+                SelectedDevice = firstImported;
+            MainTabs.SelectedIndex = 0;
+            UpdateNavigationVisuals(0, animate: true);
+            RaiseWorkspaceCounts();
+
+            var warningText = result.Warnings.Count == 0 ? string.Empty : $", {result.Warnings.Count} warning(s)";
+            var status = $"{sourceName}: {result.Endpoints.Count} SCL endpoint(s) read — {added} added, {refreshed} refreshed, {retained} existing retained{warningText}. Use Play or Connect All for live verification.";
+            SetStatus(status);
+            AddLog("INFO", "SCL", status);
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus($"{sourceName}: SCL import cancelled.");
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", "SCL", $"Could not open {sourceName}: {ex.Message}");
+            SetStatus($"{sourceName}: SCL import failed. Diagnostics is marked with !.");
+            MarkDiagnosticAlert();
+            MessageBox.Show(
+                this,
+                $"ArIED could not read this SCL file.\n\n{ex.Message}",
+                "Open SCL",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
+    private static string BuildSclEndpointSummary(SclIedEndpoint endpoint)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(endpoint.AccessPointName))
+            parts.Add($"AP {endpoint.AccessPointName}");
+        if (!string.IsNullOrWhiteSpace(endpoint.SubNetworkName))
+            parts.Add(endpoint.SubNetworkName);
+        return parts.Count == 0 ? "SCL endpoint" : string.Join(" • ", parts);
+    }
+
+
     private async void ConnectAllIeds_Click(object sender, RoutedEventArgs e)
     {
         if (_connectAllInProgress)

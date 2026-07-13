@@ -7,8 +7,8 @@ ArIED 61850 is a Windows desktop engineering tool for IEC 61850 MMS discovery, m
 ## Core workflow
 
 ```text
-Add or open IED
-→ discover or restore cached model
+Add IED by IP, open a project, or import SCL
+→ connect and verify the live model, or restore a cached model
 → select live and control objects
 → start independent per-IED monitoring
 → inspect reports, SOE, diagnostics, and commands
@@ -20,6 +20,7 @@ Each IED keeps its own connection, discovery progress, selected signals, report 
 
 - Live MMS discovery of Logical Devices, Logical Nodes, data objects, values, quality, and IED timestamps.
 - Real IEDName and Logical Device boundary resolution.
+- SCL endpoint import from SCD, CID, ICD, IID, SSD, or XML files, including multi-IED ConnectedAP/IP extraction and duplicate protection.
 - Multi-IED independent connections and monitoring.
 - Static RCB/DataSet first, dynamic reporting when needed, and bounded MMS fallback for uncovered or unverified points.
 - Saved project model cache for fast reconnect without repeating full discovery.
