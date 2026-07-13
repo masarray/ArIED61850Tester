@@ -13,21 +13,28 @@ This matches the observed screen sequence: a very short Closed indication, a ret
 
 ## Root cause
 
-`CSWI1.Pos` is both the command object and a status-bearing object. Immediately after `SBOw → Operate → CommandTermination`, the relay can expose a short command-object echo matching the requested value before the stable process/equipment status settles. The previous UI accepted the first matching value as final feedback.
+`CSWI1.Pos` is both the command object and a status-bearing object. Immediately after `SBOw → Operate → CommandTermination`, the relay can expose a short command-object echo matching the requested value before the stable process/equipment status settles.
 
 The `0.908 ms` feedback result is therefore not credible as mechanical breaker travel. Positive CommandTermination proves that the enhanced-security command completed; it does not prove that the primary-equipment position has already settled.
 
-## Fix
+## Why the first workaround made it worse
 
-For position Close commands only:
+The first workaround classified the echo only after the control-result diagnostic was emitted. By then the Closed value had already entered the normal WPF point-update queue. The command row also retained a deferred Closed value while `ControlIsBusy=true`, so that optimistic value could be published again when the command completed and remain visible until the next real live update.
 
-1. Detect a matching feedback sample reported within 150 ms.
-2. Treat that first sample as a possible CSWI command-object echo.
-3. Keep the last stable position visible and show `waiting for stable Closed process feedback`.
-4. Accept the requested state after either:
-   - a non-target sample followed by the final target state; or
-   - the target remains present beyond a 750 ms guard window.
-5. Time out the UI stability state after 15 seconds without issuing any retry or second command.
+That implementation reacted too late and operated only on the command-row model. It did not stop the transient sample before the main Value Viewer.
+
+## Corrected fix
+
+The correction now works at the source of the UI update:
+
+1. Replace the normal `PointUpdated` subscriber with a thin stability filter before snapshots enter the 100 ms Value Viewer batch.
+2. Keep Open, Intermediate, Bad, XCBR, and XSWI position updates immediate.
+3. Debounce only `CSWI*.Pos.stVal = Closed` for 350 ms.
+4. Cancel the pending Closed snapshot immediately when Open/non-Closed follows, so the short command echo never reaches the Value Viewer.
+5. Mark a Close as stable only after the debounce survives.
+6. Suppress direct command-result Closed assignments until that fresh stable live-position evidence exists.
+7. Keep the last real state visible and show `Command accepted — waiting for stable Closed process feedback…`.
+8. Expire the waiting state after 15 seconds without issuing any retry or second command.
 
 Open is intentionally not delayed because the relay's Open movement and feedback are genuinely fast.
 
@@ -36,11 +43,13 @@ Open is intentionally not delayed because the relay's Open movement and feedback
 - No automatic command retry.
 - No second Select/SBOw or Operate.
 - No change to ctlNum, origin, Test, Check, interlock, synchrocheck, or CommandTermination handling.
-- The change is display/feedback stabilization only; the ARIEC61850 control sequence remains authoritative.
+- Raw Event Log/SOE remains available; only the live Value Viewer and command-row presentation reject the short CSWI command echo.
+- The ARIEC61850 command sequence remains authoritative.
 
 ## Live retest
 
-- Open: value should change quickly without added guard delay.
-- Close: the row should remain Open/Closing while the process is moving; it must not flash Closed for about 100 ms.
-- Final Closed should appear when the stable report/poll value arrives, expected around four seconds on this OLSF501 configuration.
-- Diagnostics should still show positive CommandTermination separately from stable process feedback.
+- Open: value changes quickly without added guard delay.
+- Close: the Value Viewer and command row remain Open while the short CSWI echo occurs.
+- Final Closed appears after the real stable report/poll value arrives, expected around four seconds on this OLSF501 configuration, plus only the 350 ms stability window.
+- XCBR/XSWI equipment-position updates are not delayed.
+- Diagnostics continue to show CommandTermination separately from stable process feedback.
