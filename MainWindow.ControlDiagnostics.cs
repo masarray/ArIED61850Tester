@@ -7,37 +7,42 @@ namespace ArIED61850Tester;
 
 public partial class MainWindow
 {
-    private static readonly TimeSpan CswiCloseDebounce = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan CswiPositionDebounce = TimeSpan.FromMilliseconds(350);
     private static readonly TimeSpan ControlFeedbackStateLifetime = TimeSpan.FromSeconds(15);
 
     private static readonly Regex ControlRequestedPattern = new(
         @"Control requested:\s*(?<reference>.+?)\s+value=(?<value>[^;]+);",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-    private sealed class PendingCswiCloseSnapshot
+    private sealed class PendingCswiPositionSnapshot
     {
         public required Iec61850PointSnapshot Latest { get; set; }
+        public required string Value { get; set; }
         public CancellationTokenSource Cancellation { get; } = new();
         public object Sync { get; } = new();
     }
 
-    private sealed class ActivePositionCloseCommand
+    private sealed record StablePositionEvidence(string Value, DateTimeOffset ObservedUtc);
+
+    private sealed class ActivePositionCommand
     {
         public required string Key { get; init; }
         public required SignalDefinition Signal { get; init; }
         public required string BeforeValue { get; init; }
+        public required string RequestedValue { get; init; }
         public DateTimeOffset StartedUtc { get; init; } = DateTimeOffset.UtcNow;
+        public bool StableConfirmed { get; set; }
         public bool Restoring { get; set; }
         public PropertyChangedEventHandler? PropertyChangedHandler { get; set; }
     }
 
-    private readonly ConcurrentDictionary<string, PendingCswiCloseSnapshot> _pendingCswiCloseSnapshots =
+    private readonly ConcurrentDictionary<string, PendingCswiPositionSnapshot> _pendingCswiPositionSnapshots =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _stableClosedPositionReferences =
+    private readonly ConcurrentDictionary<string, StablePositionEvidence> _stablePositionReferences =
         new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, ActivePositionCloseCommand> _activePositionCloseCommands =
+    private readonly Dictionary<string, ActivePositionCommand> _activePositionCommands =
         new(StringComparer.OrdinalIgnoreCase);
 
     private bool _controlDiagnosticNormalizerInstalled;
@@ -50,14 +55,17 @@ public partial class MainWindow
 
         _controlDiagnosticNormalizerInstalled = true;
 
-        // Keep the normal runtime batching path, but filter the short CSWI Close pulse
-        // before it reaches the Value Viewer or command-row feedback binding.
+        // Filter short CSWI command-object echoes before they enter the 100 ms UI batch.
+        // Both Open and Closed are debounced because some relays briefly publish the
+        // requested value, fall back to the old state, then publish the settled state.
         _runtime.PointUpdated -= Runtime_PointUpdated;
         _runtime.PointUpdated += Runtime_PointUpdatedWithStablePositionFilter;
 
         // ctlModel=StatusOnly is valid read-only model information, not a transport fault.
         _runtime.Diagnostic -= Runtime_Diagnostic;
         _runtime.Diagnostic += Runtime_DiagnosticWithControlModelClassification;
+
+        InstallCommandPanelUx();
     }
 
     private void Runtime_PointUpdatedWithStablePositionFilter(Iec61850PointSnapshot snapshot)
@@ -71,70 +79,91 @@ public partial class MainWindow
 
         var key = NormalizeReference(reference);
         var value = NormalizeControlState(snapshot.Value);
+        var isBinaryPosition = value.Equals("Open", StringComparison.OrdinalIgnoreCase) ||
+                               value.Equals("Closed", StringComparison.OrdinalIgnoreCase);
 
-        if (!value.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+        if (!isBinaryPosition)
         {
-            _stableClosedPositionReferences.TryRemove(key, out _);
-            CancelPendingCswiClose(key);
+            _stablePositionReferences.TryRemove(key, out _);
+            CancelPendingCswiPosition(key);
             Runtime_PointUpdated(snapshot);
             return;
         }
 
-        // XCBR/XSWI position is equipment feedback and remains immediate. Only CSWI.Pos
-        // is debounced because this relay exposes a short command-object Close echo there.
+        // XCBR/XSWI are equipment-status objects and remain immediate. CSWI.Pos is the
+        // command-facing status object that can expose a short requested-state echo.
         if (!IsCswiPositionStatusReference(reference))
         {
-            _stableClosedPositionReferences[key] = DateTimeOffset.UtcNow;
+            _stablePositionReferences[key] = new StablePositionEvidence(value, DateTimeOffset.UtcNow);
             Runtime_PointUpdated(snapshot);
             return;
         }
 
-        if (_pendingCswiCloseSnapshots.TryGetValue(key, out var existing))
+        while (true)
         {
-            lock (existing.Sync)
-                existing.Latest = snapshot;
-            return;
-        }
-
-        var pending = new PendingCswiCloseSnapshot { Latest = snapshot };
-        if (!_pendingCswiCloseSnapshots.TryAdd(key, pending))
-        {
-            if (_pendingCswiCloseSnapshots.TryGetValue(key, out existing))
+            if (_pendingCswiPositionSnapshots.TryGetValue(key, out var existing))
             {
                 lock (existing.Sync)
-                    existing.Latest = snapshot;
+                {
+                    if (existing.Value.Equals(value, StringComparison.OrdinalIgnoreCase))
+                    {
+                        existing.Latest = snapshot;
+                        return;
+                    }
+                }
+
+                // Opposite value arrived inside the guard window. The first sample was a
+                // transient; discard it and begin a fresh stability window for the new one.
+                CancelPendingCswiPosition(key);
+                continue;
             }
+
+            var pending = new PendingCswiPositionSnapshot
+            {
+                Latest = snapshot,
+                Value = value
+            };
+
+            if (!_pendingCswiPositionSnapshots.TryAdd(key, pending))
+                continue;
+
+            _ = ReleaseStableCswiPositionAsync(key, pending);
             return;
         }
-
-        _ = ReleaseStableCswiCloseAsync(key, pending);
     }
 
-    private async Task ReleaseStableCswiCloseAsync(string key, PendingCswiCloseSnapshot pending)
+    private async Task ReleaseStableCswiPositionAsync(string key, PendingCswiPositionSnapshot pending)
     {
         try
         {
-            await Task.Delay(CswiCloseDebounce, pending.Cancellation.Token).ConfigureAwait(false);
+            await Task.Delay(CswiPositionDebounce, pending.Cancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             return;
         }
 
-        if (!_pendingCswiCloseSnapshots.TryRemove(key, out var active) || !ReferenceEquals(active, pending))
+        var removed = ((ICollection<KeyValuePair<string, PendingCswiPositionSnapshot>>)_pendingCswiPositionSnapshots)
+            .Remove(new KeyValuePair<string, PendingCswiPositionSnapshot>(key, pending));
+        if (!removed)
             return;
 
         Iec61850PointSnapshot stableSnapshot;
+        string stableValue;
         lock (pending.Sync)
+        {
             stableSnapshot = pending.Latest;
+            stableValue = pending.Value;
+        }
 
-        _stableClosedPositionReferences[key] = DateTimeOffset.UtcNow;
+        _stablePositionReferences[key] = new StablePositionEvidence(stableValue, DateTimeOffset.UtcNow);
         Runtime_PointUpdated(stableSnapshot);
+        pending.Cancellation.Dispose();
     }
 
-    private void CancelPendingCswiClose(string key)
+    private void CancelPendingCswiPosition(string key)
     {
-        if (!_pendingCswiCloseSnapshots.TryRemove(key, out var pending))
+        if (!_pendingCswiPositionSnapshots.TryRemove(key, out var pending))
             return;
 
         pending.Cancellation.Cancel();
@@ -182,50 +211,50 @@ public partial class MainWindow
             return;
 
         var requestedValue = NormalizeControlState(match.Groups["value"].Value);
-        if (!requestedValue.Equals("Closed", StringComparison.OrdinalIgnoreCase))
-            return;
-
-        _ = Dispatcher.InvokeAsync(() => BeginPositionCloseCommand(
-            match.Groups["reference"].Value,
-            requestedValue));
-    }
-
-    private void BeginPositionCloseCommand(string reference, string requestedValue)
-    {
-        var key = NormalizeReference(reference);
-        var signal = FindCommandSignal(reference);
-        if (string.IsNullOrWhiteSpace(key) || signal == null || !IsPositionCommand(signal) ||
+        if (!requestedValue.Equals("Open", StringComparison.OrdinalIgnoreCase) &&
             !requestedValue.Equals("Closed", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        RemovePositionCloseCommand(key);
+        _ = Dispatcher.InvokeAsync(() => BeginPositionCommand(
+            match.Groups["reference"].Value,
+            requestedValue));
+    }
 
-        var state = new ActivePositionCloseCommand
+    private void BeginPositionCommand(string reference, string requestedValue)
+    {
+        var key = NormalizeReference(reference);
+        var signal = FindCommandSignal(reference);
+        if (string.IsNullOrWhiteSpace(key) || signal == null || !IsPositionCommand(signal))
+            return;
+
+        RemovePositionCommand(key);
+
+        var state = new ActivePositionCommand
         {
             Key = key,
             Signal = signal,
-            BeforeValue = NormalizeControlState(signal.ControlCurrentValue)
+            BeforeValue = NormalizeControlState(signal.ControlCurrentValue),
+            RequestedValue = requestedValue
         };
 
-        PropertyChangedEventHandler handler = (_, args) => HandlePositionCloseCommandPropertyChanged(state, args.PropertyName);
+        PropertyChangedEventHandler handler = (_, args) => HandlePositionCommandPropertyChanged(state, args.PropertyName);
         state.PropertyChangedHandler = handler;
         signal.PropertyChanged += handler;
-        _activePositionCloseCommands[key] = state;
+        _activePositionCommands[key] = state;
 
-        // A previous Closed state must not authorize the new command result. Only a fresh
-        // live position sample arriving after this request may confirm the new Close.
+        // Evidence from before this command must never confirm the new operation.
         var feedbackKey = ResolveControlFeedbackKey(signal);
         if (!string.IsNullOrWhiteSpace(feedbackKey))
-            _stableClosedPositionReferences.TryRemove(feedbackKey, out _);
+            _stablePositionReferences.TryRemove(feedbackKey, out _);
 
-        _ = ExpirePositionCloseCommandAsync(state);
+        _ = ExpirePositionCommandAsync(state);
     }
 
-    private void HandlePositionCloseCommandPropertyChanged(ActivePositionCloseCommand state, string? propertyName)
+    private void HandlePositionCommandPropertyChanged(ActivePositionCommand state, string? propertyName)
     {
-        if (state.Restoring || !_activePositionCloseCommands.TryGetValue(state.Key, out var active) ||
+        if (state.Restoring || !_activePositionCommands.TryGetValue(state.Key, out var active) ||
             !ReferenceEquals(active, state))
         {
             return;
@@ -234,13 +263,15 @@ public partial class MainWindow
         if (propertyName == nameof(SignalDefinition.ControlCurrentValue))
         {
             var current = NormalizeControlState(state.Signal.ControlCurrentValue);
-            if (!current.Equals("Closed", StringComparison.OrdinalIgnoreCase))
+            if (!current.Equals(state.RequestedValue, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            if (HasFreshStableCloseEvidence(state))
+            if (HasFreshStableEvidence(state))
             {
-                RemovePositionCloseCommand(state.Key);
-                state.Signal.ControlLastResult = "Stable process feedback confirmed: Closed.";
+                state.StableConfirmed = true;
+                SetStableFeedbackResult(state);
+                if (!state.Signal.ControlIsBusy)
+                    RemovePositionCommand(state.Key);
                 return;
             }
 
@@ -248,39 +279,47 @@ public partial class MainWindow
             return;
         }
 
-        if (propertyName != nameof(SignalDefinition.ControlLastResult))
-            return;
-
-        var result = state.Signal.ControlLastResult ?? string.Empty;
-        if (IsControlFailureResult(result))
+        if (propertyName == nameof(SignalDefinition.ControlLastResult))
         {
-            RemovePositionCloseCommand(state.Key);
+            var result = state.Signal.ControlLastResult ?? string.Empty;
+            if (IsControlFailureResult(result))
+            {
+                RemovePositionCommand(state.Key);
+                return;
+            }
+
+            if (state.StableConfirmed)
+            {
+                SetStableFeedbackResult(state);
+                return;
+            }
+
+            if (!HasFreshStableEvidence(state) &&
+                result.Contains("Feedback confirmed", StringComparison.OrdinalIgnoreCase) &&
+                result.Contains(state.RequestedValue, StringComparison.OrdinalIgnoreCase))
+            {
+                SetWaitingForStableFeedbackResult(state);
+            }
+
             return;
         }
 
-        if (!HasFreshStableCloseEvidence(state) &&
-            result.Contains("Feedback confirmed", StringComparison.OrdinalIgnoreCase) &&
-            result.Contains("Closed", StringComparison.OrdinalIgnoreCase))
+        if (propertyName == nameof(SignalDefinition.ControlIsBusy) &&
+            !state.Signal.ControlIsBusy && state.StableConfirmed)
         {
-            state.Restoring = true;
-            try
-            {
-                state.Signal.ControlLastResult = "Command accepted — waiting for stable Closed process feedback…";
-            }
-            finally
-            {
-                state.Restoring = false;
-            }
+            SetStableFeedbackResult(state);
+            RemovePositionCommand(state.Key);
         }
     }
 
-    private void RestorePreCommandValue(ActivePositionCloseCommand state)
+    private void RestorePreCommandValue(ActivePositionCommand state)
     {
         state.Restoring = true;
         try
         {
             state.Signal.ControlCurrentValue = state.BeforeValue;
-            state.Signal.ControlLastResult = "Command accepted — waiting for stable Closed process feedback…";
+            state.Signal.ControlLastResult =
+                $"Command accepted — waiting for stable {state.RequestedValue} process feedback…";
         }
         finally
         {
@@ -288,12 +327,41 @@ public partial class MainWindow
         }
     }
 
-    private bool HasFreshStableCloseEvidence(ActivePositionCloseCommand state)
+    private void SetWaitingForStableFeedbackResult(ActivePositionCommand state)
+    {
+        state.Restoring = true;
+        try
+        {
+            state.Signal.ControlLastResult =
+                $"Command accepted — waiting for stable {state.RequestedValue} process feedback…";
+        }
+        finally
+        {
+            state.Restoring = false;
+        }
+    }
+
+    private void SetStableFeedbackResult(ActivePositionCommand state)
+    {
+        state.Restoring = true;
+        try
+        {
+            state.Signal.ControlLastResult =
+                $"Stable process feedback confirmed: {state.RequestedValue}.";
+        }
+        finally
+        {
+            state.Restoring = false;
+        }
+    }
+
+    private bool HasFreshStableEvidence(ActivePositionCommand state)
     {
         var feedbackKey = ResolveControlFeedbackKey(state.Signal);
         return !string.IsNullOrWhiteSpace(feedbackKey) &&
-               _stableClosedPositionReferences.TryGetValue(feedbackKey, out var observedUtc) &&
-               observedUtc >= state.StartedUtc;
+               _stablePositionReferences.TryGetValue(feedbackKey, out var evidence) &&
+               evidence.ObservedUtc >= state.StartedUtc &&
+               evidence.Value.Equals(state.RequestedValue, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ResolveControlFeedbackKey(SignalDefinition signal)
@@ -304,7 +372,7 @@ public partial class MainWindow
         return NormalizeReference(reference);
     }
 
-    private async Task ExpirePositionCloseCommandAsync(ActivePositionCloseCommand state)
+    private async Task ExpirePositionCommandAsync(ActivePositionCommand state)
     {
         await Task.Delay(ControlFeedbackStateLifetime).ConfigureAwait(false);
         if (Dispatcher.HasShutdownStarted)
@@ -312,12 +380,15 @@ public partial class MainWindow
 
         await Dispatcher.InvokeAsync(() =>
         {
-            if (!_activePositionCloseCommands.TryGetValue(state.Key, out var active) || !ReferenceEquals(active, state))
+            if (!_activePositionCommands.TryGetValue(state.Key, out var active) || !ReferenceEquals(active, state))
                 return;
 
-            RemovePositionCloseCommand(state.Key);
-            state.Signal.ControlLastResult =
-                $"Command accepted, but stable Closed process feedback was not confirmed within {ControlFeedbackStateLifetime.TotalSeconds:0} s.";
+            RemovePositionCommand(state.Key);
+            if (!state.StableConfirmed)
+            {
+                state.Signal.ControlLastResult =
+                    $"Command accepted, but stable {state.RequestedValue} process feedback was not confirmed within {ControlFeedbackStateLifetime.TotalSeconds:0} s.";
+            }
         });
     }
 
@@ -330,9 +401,9 @@ public partial class MainWindow
                 .Equals(normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void RemovePositionCloseCommand(string key)
+    private void RemovePositionCommand(string key)
     {
-        if (!_activePositionCloseCommands.Remove(key, out var state))
+        if (!_activePositionCommands.Remove(key, out var state))
             return;
 
         if (state.PropertyChangedHandler != null)
