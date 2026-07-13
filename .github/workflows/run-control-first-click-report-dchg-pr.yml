@@ -45,24 +45,28 @@ jobs:
               path.write_text(text, encoding='utf-8', newline='\n')
           PY
           set +e
-          git apply --check --verbose --ignore-space-change --ignore-whitespace --recount /tmp/control-first-click.patch > "$RUNNER_TEMP/control-first-click-apply.log" 2>&1
+          git apply --check --verbose --ignore-space-change --ignore-whitespace --recount /tmp/control-first-click.patch > control-first-click-apply.log 2>&1
           status=$?
-          cat "$RUNNER_TEMP/control-first-click-apply.log"
-          if [ $status -ne 0 ]; then exit $status; fi
+          cat control-first-click-apply.log
+          if [ $status -ne 0 ]; then
+            if [ ! -f docs/control-first-click-apply-diagnostic.txt ]; then
+              cp control-first-click-apply.log docs/control-first-click-apply-diagnostic.txt
+              git config user.name 'github-actions[bot]'
+              git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+              git add docs/control-first-click-apply-diagnostic.txt
+              git commit -m 'ci: capture first-click patch failure [patch-diagnostic]'
+              git push origin HEAD:fix/control-first-click-report-dchg
+            fi
+            exit $status
+          fi
           git apply --verbose --ignore-space-change --ignore-whitespace --recount /tmp/control-first-click.patch
-
-      - name: Upload patch diagnostic
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: control-first-click-apply-log
-          path: ${{ runner.temp }}/control-first-click-apply.log
 
       - name: Commit source changes
         shell: pwsh
         run: |
           git rm .github/workflows/apply-control-first-click-report-dchg.yml
           git rm .github/workflows/run-control-first-click-report-dchg-pr.yml
+          if (Test-Path 'docs/control-first-click-apply-diagnostic.txt') { git rm docs/control-first-click-apply-diagnostic.txt }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add MainWindow.CommandPanelUx.cs MainWindow.xaml.cs Services/Iec61850MonitorRuntime.cs Services/NativeIec61850Client.cs
