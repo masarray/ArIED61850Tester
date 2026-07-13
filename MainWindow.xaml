@@ -30,7 +30,7 @@
                 <TextBlock Text="Smart IED Explorer &amp; Monitor" FontSize="13.2" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
             </StackPanel>
             <TextBlock Grid.Column="1"
-                       Text="Fast workflow: add IED → discover live model → choose signals → monitor each IED independently"
+                       Text="Fast workflow: add IED or open SCL → verify live model → choose signals → monitor independently"
                        FontSize="12.5" Foreground="{StaticResource Muted}"
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -131,13 +131,20 @@
                                     Background="#F7FAFF" BorderBrush="#DCE6F5" BorderThickness="1"
                                     CornerRadius="15" Effect="{StaticResource SoftShadow}" Panel.ZIndex="30">
                                 <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="6"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="6"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <Button Grid.Column="0" Click="ConnectAllIeds_Click" Style="{StaticResource SoftButton}" Padding="8,7" FontSize="11.5"
-                                            ToolTip="Fast-connect every saved IED and start live monitoring for its saved selections">
+
+                                    <Button Grid.Row="0" Grid.ColumnSpan="3" Click="ConnectAllIeds_Click"
+                                            Style="{StaticResource SoftButton}" Padding="8,7" FontSize="11.5"
+                                            ToolTip="Fast-connect every saved or SCL-imported IED and start live monitoring for saved selections">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                             <Viewbox Width="13" Height="13" Margin="0,0,4,0">
                                                 <Canvas Width="24" Height="24">
@@ -147,10 +154,25 @@
                                             <TextBlock Text="Connect All" FontWeight="SemiBold"/>
                                         </StackPanel>
                                     </Button>
-                                    <Button Grid.Column="2" Click="AddRelay_Click" Style="{StaticResource PrimaryButton}" Padding="8,7" FontSize="11.5"
-                                            ToolTip="Add another IEC 61850 IED">
+
+                                    <Button Grid.Row="2" Grid.Column="0" Click="OpenScl_Click"
+                                            Style="{StaticResource SoftButton}" Padding="7,7" FontSize="11.2"
+                                            ToolTip="Import one or more IED endpoints from SCD, CID, ICD, IID, SSD, or XML SCL files">
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                            <TextBlock Text="＋" FontSize="15" FontWeight="SemiBold" Margin="0,-1,5,0"/>
+                                            <Viewbox Width="13" Height="13" Margin="0,0,4,0">
+                                                <Canvas Width="24" Height="24">
+                                                    <Path Data="M6,2 H14 L19,7 V22 H6 Z M14,2 V7 H19" Stroke="#2563EB" StrokeThickness="1.8" StrokeLineJoin="Round" Fill="Transparent"/>
+                                                </Canvas>
+                                            </Viewbox>
+                                            <TextBlock Text="Open SCL" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                    </Button>
+
+                                    <Button Grid.Row="2" Grid.Column="2" Click="AddRelay_Click"
+                                            Style="{StaticResource PrimaryButton}" Padding="7,7" FontSize="11.2"
+                                            ToolTip="Add an IEC 61850 IED by IP address">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="＋" FontSize="15" FontWeight="SemiBold" Margin="0,-1,4,0"/>
                                             <TextBlock Text="Add IED" FontWeight="SemiBold"/>
                                         </StackPanel>
                                     </Button>
