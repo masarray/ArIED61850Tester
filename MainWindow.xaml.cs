@@ -178,11 +178,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 AddLog("WARN", "SCL", $"{sourceName}: {reason}");
                 MessageBox.Show(
                     this,
-                    $"No usable IEC 61850 MMS endpoint was found in {sourceName}.
-
-{reason}
-
-The file may contain only an IED template without a Communication section.",
+                    $"No usable IEC 61850 MMS endpoint was found in {sourceName}.\n\n{reason}\n\nThe file may contain only an IED template without a Communication section.",
                     "Open SCL",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -264,9 +260,7 @@ The file may contain only an IED template without a Communication section.",
             MarkDiagnosticAlert();
             MessageBox.Show(
                 this,
-                $"ArIED could not read this SCL file.
-
-{ex.Message}",
+                $"ArIED could not read this SCL file.\n\n{ex.Message}",
                 "Open SCL",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
