@@ -45,17 +45,7 @@ jobs:
         run: dotnet restore .\ArIED61850Tester\ArIED61850Tester.csproj
 
       - name: Build
-        shell: powershell
-        run: |
-          dotnet build .\ArIED61850Tester\ArIED61850Tester.csproj -c Release --no-restore 2>&1 | Tee-Object -FilePath .\build.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload build diagnostic
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ArIED61850-build-log
-          path: build.log
+        run: dotnet build .\ArIED61850Tester\ArIED61850Tester.csproj -c Release --no-restore
 
       - name: Publish portable x64
         shell: powershell
