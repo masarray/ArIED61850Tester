@@ -1,0 +1,53 @@
+name: Run control first-click and report dchg fix
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  apply:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/control-first-click-report-dchg
+          fetch-depth: 0
+
+      - name: Apply reviewed patch from source workflow
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, gzip
+          workflow = Path('.github/workflows/apply-control-first-click-report-dchg.yml').read_text(encoding='utf-8')
+          start = workflow.index("PATCH_B64'\n") + len("PATCH_B64'\n")
+          end = workflow.index('\nPATCH_B64', start)
+          patch = gzip.decompress(base64.b64decode(workflow[start:end].strip()))
+          Path('/tmp/control-first-click.patch').write_bytes(patch)
+          for name in [
+              'MainWindow.CommandPanelUx.cs',
+              'MainWindow.xaml.cs',
+              'Services/Iec61850MonitorRuntime.cs',
+              'Services/NativeIec61850Client.cs',
+          ]:
+              path = Path(name)
+              path.write_text(path.read_text(encoding='utf-8').replace('\r\n', '\n'), encoding='utf-8', newline='\n')
+          PY
+          git apply --check /tmp/control-first-click.patch
+          git apply /tmp/control-first-click.patch
+
+      - name: Commit source changes
+        shell: pwsh
+        run: |
+          git rm .github/workflows/apply-control-first-click-report-dchg.yml
+          git rm .github/workflows/run-control-first-click-report-dchg-pr.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add MainWindow.CommandPanelUx.cs MainWindow.xaml.cs Services/Iec61850MonitorRuntime.cs Services/NativeIec61850Client.cs
+          git commit -m 'fix: prioritize first-click control and enforce dynamic dchg [control-first-click-dchg-applied]'
+          git push origin HEAD:fix/control-first-click-report-dchg
