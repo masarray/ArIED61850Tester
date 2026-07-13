@@ -86,8 +86,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Raise(nameof(ActiveIedTitle));
             Raise(nameof(ActiveIedSubtitle));
             RaiseWorkspaceCounts();
-            if (_selectedDevice != null && CommandPanelExpander?.IsExpanded == true)
-                _ = RefreshControlValuesAsync(_selectedDevice);
+            // ctlModel inspection is preloaded independently of the Expander. Avoid
+            // changing the row set after the panel's first frame has already painted.
         }
     }
 
@@ -742,6 +742,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
         }));
 
+        device.RefreshCommandSignalProjection();
         RebuildControlFeedbackIndex(device);
         SetStatus($"{device.Name}: refreshed {candidates.Length} control value(s).");
     }
@@ -797,6 +798,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     signal,
                     _applicationCancellation.Token);
                 signal.ControlCurrentValue = capabilities.CurrentValue;
+                device.RefreshCommandSignalProjection();
                 RebuildControlFeedbackIndex(device);
             }
 
