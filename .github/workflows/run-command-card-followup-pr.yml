@@ -32,11 +32,11 @@ jobs:
           fi
           python - <<'PY'
           from pathlib import Path
-          import textwrap
           workflow = Path('.github/workflows/apply-command-card-followup-v2.yml').read_text(encoding='utf-8')
           start = workflow.index("          python - <<'PY'\n") + len("          python - <<'PY'\n")
           end = workflow.index("\n          PY", start)
-          script = textwrap.dedent(workflow[start:end])
+          raw = workflow[start:end]
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in raw.splitlines())
           exec(compile(script, 'embedded-command-card-followup.py', 'exec'))
           PY
           echo "APPLY_NEEDED=true" >> "$GITHUB_ENV"
@@ -49,6 +49,7 @@ jobs:
           if (Test-Path '.github/workflows/apply-command-card-followup-v2.yml') { git rm .github/workflows/apply-command-card-followup-v2.yml }
           if (Test-Path '.github/workflows/apply-command-card-followup.yml') { git rm .github/workflows/apply-command-card-followup.yml }
           if (Test-Path '.github/workflows/bootstrap-command-card-followup.yml') { git rm .github/workflows/bootstrap-command-card-followup.yml }
+          if (Test-Path '.github/workflows/debug-command-source.yml') { git rm .github/workflows/debug-command-source.yml }
           if (Test-Path '.github/command-card-followup.trigger') { git rm .github/command-card-followup.trigger }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
