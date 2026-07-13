@@ -1028,7 +1028,9 @@ public sealed class NativeIec61850Client : IIec61850Client, IIec61850ControlClie
         var control = await GetOrOpenControlSessionAsync(signal, cancellationToken).ConfigureAwait(false);
         var descriptor = control.Descriptor;
         var effectiveCdc = ResolveControlSemanticCdc(descriptor, signal);
-        var status = await control.ReadStatusAsync(cancellationToken).ConfigureAwait(false);
+        var status = await RunMmsOperationAsync(
+            () => control.ReadStatusAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false);
         var normalizedStatus = NormalizeControlFeedback(effectiveCdc, status.DisplayValue, status.State);
         var currentValue = status.IsSuccess ? normalizedStatus.Value : "-";
         var currentState = normalizedStatus.State.ToString();
@@ -1160,7 +1162,9 @@ public sealed class NativeIec61850Client : IIec61850Client, IIec61850ControlClie
         ArControl.Iec61850ControlActionResult action;
         try
         {
-            action = await control.OperateAsync(nativeRequest, cancellationToken).ConfigureAwait(false);
+            action = await RunMmsOperationAsync(
+                () => control.OperateAsync(nativeRequest, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -1313,7 +1317,9 @@ public sealed class NativeIec61850Client : IIec61850Client, IIec61850ControlClie
             }
         }
 
-        var status = await control.ReadStatusAsync(cancellationToken).ConfigureAwait(false);
+        var status = await RunMmsOperationAsync(
+            () => control.ReadStatusAsync(cancellationToken),
+            cancellationToken).ConfigureAwait(false);
         var normalizedStatus = NormalizeControlFeedback(feedbackCdc, status.DisplayValue, status.State);
         return (status.IsSuccess, normalizedStatus.Value, normalizedStatus.State);
     }
@@ -1811,7 +1817,9 @@ public sealed class NativeIec61850Client : IIec61850Client, IIec61850ControlClie
                 return existing;
 
             var service = new ArControl.Iec61850ControlService();
-            var opened = await service.OpenAsync(_session, signal.ObjectReference, cancellationToken).ConfigureAwait(false);
+            var opened = await RunMmsOperationAsync(
+                () => service.OpenAsync(_session, signal.ObjectReference, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
             _controlSessions[key] = opened;
             return opened;
         }
