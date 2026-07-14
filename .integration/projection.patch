@@ -1,0 +1,300 @@
+--- /dev/null
++++ b/Services/SclLiveSignalModelProjection.cs
+@@ -0,0 +1,276 @@
++using AR.Iec61850.Discovery;
++using ArIED61850Tester.Models;
++
++namespace ArIED61850Tester.Services;
++
++/// <summary>
++/// Builds a bounded engine discovery document from ArIED signal rows so the
++/// ARIEC61850 SCL comparer remains the only owner of design-versus-live rules.
++/// The projection is intentionally limited to model elements exposed by the
++/// application discovery workflow: DA references, FC/type evidence, DataSets,
++/// and ReportControl bindings.
++/// </summary>
++public static class SclLiveSignalModelProjection
++{
++    public static LiveIedModelDiscoveryDocument Build(
++        string iedName,
++        string accessPointName,
++        IEnumerable<SignalDefinition> signals)
++    {
++        var rows = (signals ?? Array.Empty<SignalDefinition>())
++            .Where(signal => !string.IsNullOrWhiteSpace(signal.ObjectReference))
++            .ToArray();
++
++        var logicalDevices = rows
++            .Select(ToDescriptor)
++            .Where(descriptor => descriptor != null)
++            .Cast<SignalDescriptor>()
++            .GroupBy(descriptor => descriptor.Domain, StringComparer.OrdinalIgnoreCase)
++            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
++            .Select(domain => new LiveIedLogicalDeviceModel
++            {
++                MmsDomain = domain.Key,
++                Inst = LogicalDeviceInst(domain.Key, iedName),
++                LogicalNodes = domain
++                    .GroupBy(descriptor => descriptor.LogicalNode, StringComparer.OrdinalIgnoreCase)
++                    .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
++                    .Select(logicalNode => BuildLogicalNode(logicalNode.Key, logicalNode))
++                    .ToArray()
++            })
++            .ToArray();
++
++        var dataSets = BuildDataSets(rows);
++        var reports = BuildReportControls(rows, dataSets);
++        var coverage = BuildCoverage(logicalDevices, dataSets, reports);
++
++        return new LiveIedModelDiscoveryDocument
++        {
++            Source = "ArIEDSignalProjection",
++            IedName = iedName,
++            AccessPointName = accessPointName,
++            LogicalDevices = logicalDevices,
++            DataSets = dataSets,
++            ReportControls = reports,
++            Coverage = coverage,
++            Summary = $"ArIED runtime projection: LD={coverage.LogicalDeviceCount}, LN={coverage.LogicalNodeCount}, DO={coverage.DataObjectCount}, DA={coverage.DataAttributeCount}, RCB={coverage.ReportControlCount}, DataSet={coverage.DataSetCount}."
++        };
++    }
++
++    private static LiveIedLogicalNodeModel BuildLogicalNode(
++        string logicalNodeName,
++        IEnumerable<SignalDescriptor> descriptors)
++    {
++        var descriptorArray = descriptors.ToArray();
++        var parts = SignalDefinition.DetectLogicalNodeClass(logicalNodeName);
++        var dataObjects = descriptorArray
++            .GroupBy(descriptor => descriptor.DataObject, StringComparer.OrdinalIgnoreCase)
++            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
++            .Select(group => BuildDataObject(group.Key, group))
++            .ToArray();
++
++        return new LiveIedLogicalNodeModel
++        {
++            Name = logicalNodeName,
++            LnClass = parts,
++            ProposedLnTypeId = $"ARIED_{SafeId(parts)}_{SafeId(logicalNodeName)}",
++            FunctionalConstraintCounts = dataObjects
++                .SelectMany(dataObject => dataObject.Attributes)
++                .Where(attribute => !string.IsNullOrWhiteSpace(attribute.FunctionalConstraint))
++                .GroupBy(attribute => attribute.FunctionalConstraint, StringComparer.OrdinalIgnoreCase)
++                .ToDictionary(group => group.Key, group => group.Count(), StringComparer.OrdinalIgnoreCase),
++            DataObjects = dataObjects
++        };
++    }
++
++    private static LiveIedDataObjectModel BuildDataObject(
++        string dataObjectName,
++        IEnumerable<SignalDescriptor> descriptors)
++    {
++        var descriptorArray = descriptors.ToArray();
++        var primary = descriptorArray.First();
++        var attributes = descriptorArray
++            .Where(descriptor => !string.IsNullOrWhiteSpace(descriptor.AttributePath))
++            .GroupBy(descriptor => NormalizeReference(descriptor.Reference), StringComparer.OrdinalIgnoreCase)
++            .Select(group => group.First())
++            .OrderBy(descriptor => descriptor.AttributePath, StringComparer.OrdinalIgnoreCase)
++            .Select(descriptor => new LiveIedDataAttributeModel
++            {
++                ObjectReference = descriptor.Reference,
++                AttributePath = descriptor.AttributePath,
++                FunctionalConstraint = descriptor.FunctionalConstraint,
++                MmsReference = descriptor.Reference,
++                MmsItemName = descriptor.Reference.Contains('/')
++                    ? descriptor.Reference[(descriptor.Reference.IndexOf('/') + 1)..]
++                    : descriptor.Reference,
++                Source = "ArIED signal model",
++                SclBType = descriptor.DataType,
++                MmsType = descriptor.DataType,
++                MmsTypeSignature = descriptor.DataType,
++                TypeDiscoveryStatus = "Projected",
++                TypeDiscoveryMessage = "Projected from the ArIED discovery signal row.",
++                TypeSource = "ArIED discovery",
++                TypeConfidence = LiveIedDiscoveryConfidenceLevel.High,
++                FunctionalConstraintConfidence = string.IsNullOrWhiteSpace(descriptor.FunctionalConstraint)
++                    ? LiveIedDiscoveryConfidenceLevel.Unknown
++                    : LiveIedDiscoveryConfidenceLevel.Exact
++            })
++            .ToArray();
++
++        return new LiveIedDataObjectModel
++        {
++            Reference = primary.ObjectReference,
++            Name = dataObjectName,
++            ProposedDoTypeId = $"ARIED_DO_{SafeId(primary.Cdc)}_{SafeId(dataObjectName)}",
++            InferredCdc = primary.Cdc,
++            CdcConfidence = string.IsNullOrWhiteSpace(primary.Cdc) ? 0.5 : 0.9,
++            ConfidenceLevel = string.IsNullOrWhiteSpace(primary.Cdc)
++                ? LiveIedDiscoveryConfidenceLevel.Medium
++                : LiveIedDiscoveryConfidenceLevel.High,
++            Evidence = new[] { "Projected from ArIED live discovery signal metadata." },
++            Attributes = attributes
++        };
++    }
++
++    private static IReadOnlyList<LiveIedDataSetModel> BuildDataSets(IReadOnlyList<SignalDefinition> signals)
++        => signals
++            .Where(signal => !string.IsNullOrWhiteSpace(signal.DataSetReference))
++            .GroupBy(signal => signal.DataSetReference.Trim(), StringComparer.OrdinalIgnoreCase)
++            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
++            .Select(group =>
++            {
++                var reference = group.Key;
++                var domain = Domain(reference);
++                var tail = ReferenceTail(reference);
++                var separator = tail.LastIndexOf('.');
++                var logicalNode = separator > 0 ? tail[..separator] : string.Empty;
++                var name = separator > 0 ? tail[(separator + 1)..] : tail;
++                var members = group
++                    .Where(signal => !signal.IsControlSignal)
++                    .GroupBy(signal => NormalizeReference(signal.ObjectReference), StringComparer.OrdinalIgnoreCase)
++                    .Select(values => values.First())
++                    .Select((signal, index) => new LiveIedDataSetMemberModel
++                    {
++                        Index = index + 1,
++                        Reference = signal.ObjectReference,
++                        FunctionalConstraint = signal.FunctionalConstraint,
++                        MmsReference = signal.ObjectReference,
++                        Confidence = LiveIedDiscoveryConfidenceLevel.High
++                    })
++                    .ToArray();
++
++                return new LiveIedDataSetModel
++                {
++                    Reference = reference,
++                    Domain = domain,
++                    LogicalNode = logicalNode,
++                    Name = name,
++                    MemberCount = members.Length,
++                    Members = members
++                };
++            })
++            .ToArray();
++
++    private static IReadOnlyList<LiveIedReportControlModel> BuildReportControls(
++        IReadOnlyList<SignalDefinition> signals,
++        IReadOnlyList<LiveIedDataSetModel> dataSets)
++    {
++        var dataSetIndex = dataSets.ToDictionary(
++            dataSet => NormalizeReference(dataSet.Reference),
++            dataSet => dataSet,
++            StringComparer.OrdinalIgnoreCase);
++
++        return signals
++            .Where(signal => !string.IsNullOrWhiteSpace(signal.ReportControlReference))
++            .GroupBy(signal => signal.ReportControlReference.Trim(), StringComparer.OrdinalIgnoreCase)
++            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
++            .Select(group =>
++            {
++                var first = group.First();
++                var reference = group.Key;
++                var tail = ReferenceTail(reference);
++                var name = tail.Contains('.') ? tail[(tail.LastIndexOf('.') + 1)..] : tail;
++                dataSetIndex.TryGetValue(NormalizeReference(first.DataSetReference), out var dataSet);
++                return new LiveIedReportControlModel
++                {
++                    Reference = reference,
++                    Domain = Domain(reference),
++                    LogicalNode = tail.Contains('.') ? tail[..tail.IndexOf('.')] : "LLN0",
++                    Name = name,
++                    Buffered = NormalizeReference(reference).Contains(".BR.", StringComparison.OrdinalIgnoreCase),
++                    DataSetReference = dataSet?.Reference ?? first.DataSetReference,
++                    Status = "Projected from ArIED discovery"
++                };
++            })
++            .ToArray();
++    }
++
++    private static LiveIedModelDiscoveryCoverage BuildCoverage(
++        IReadOnlyList<LiveIedLogicalDeviceModel> logicalDevices,
++        IReadOnlyList<LiveIedDataSetModel> dataSets,
++        IReadOnlyList<LiveIedReportControlModel> reports)
++    {
++        var logicalNodes = logicalDevices.SelectMany(device => device.LogicalNodes).ToArray();
++        var dataObjects = logicalNodes.SelectMany(node => node.DataObjects).ToArray();
++        var attributes = dataObjects.SelectMany(dataObject => dataObject.Attributes).ToArray();
++        return new LiveIedModelDiscoveryCoverage
++        {
++            LogicalDeviceCount = logicalDevices.Count,
++            LogicalNodeCount = logicalNodes.Length,
++            DataObjectCount = dataObjects.Length,
++            DataAttributeCount = attributes.Length,
++            ExactFunctionalConstraintCount = attributes.Count(attribute => attribute.FunctionalConstraintConfidence == LiveIedDiscoveryConfidenceLevel.Exact),
++            ExactMmsTypeCount = attributes.Count(attribute => !string.IsNullOrWhiteSpace(attribute.MmsType)),
++            HighConfidenceCdcCount = dataObjects.Count(dataObject => dataObject.ConfidenceLevel is LiveIedDiscoveryConfidenceLevel.Exact or LiveIedDiscoveryConfidenceLevel.High),
++            MediumConfidenceCdcCount = dataObjects.Count(dataObject => dataObject.ConfidenceLevel == LiveIedDiscoveryConfidenceLevel.Medium),
++            DataSetCount = dataSets.Count,
++            ReportControlCount = reports.Count,
++            BufferedReportControlCount = reports.Count(report => report.Buffered),
++            UnbufferedReportControlCount = reports.Count(report => !report.Buffered)
++        };
++    }
++
++    private static SignalDescriptor? ToDescriptor(SignalDefinition signal)
++    {
++        var reference = signal.ObjectReference.Replace('$', '.').Trim();
++        var slash = reference.IndexOf('/');
++        if (slash <= 0 || slash >= reference.Length - 1)
++            return null;
++
++        var domain = reference[..slash];
++        var member = reference[(slash + 1)..];
++        var segments = member.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
++        if (segments.Length < 2)
++            return null;
++
++        var logicalNode = segments[0];
++        var dataObject = segments[1];
++        var attributePath = segments.Length > 2 ? string.Join('.', segments.Skip(2)) : string.Empty;
++        if (signal.IsControlSignal && string.IsNullOrWhiteSpace(attributePath))
++            attributePath = "Oper.ctlVal";
++
++        return new SignalDescriptor(
++            domain,
++            logicalNode,
++            dataObject,
++            attributePath,
++            reference,
++            $"{domain}/{logicalNode}.{dataObject}",
++            signal.FunctionalConstraint,
++            signal.DataType,
++            signal.ControlCdc);
++    }
++
++    private static string Domain(string reference)
++    {
++        var slash = reference.IndexOf('/');
++        return slash > 0 ? reference[..slash] : string.Empty;
++    }
++
++    private static string ReferenceTail(string reference)
++    {
++        var text = reference.Replace('$', '.');
++        var slash = text.IndexOf('/');
++        return slash >= 0 && slash < text.Length - 1 ? text[(slash + 1)..] : text;
++    }
++
++    private static string LogicalDeviceInst(string domain, string iedName)
++        => !string.IsNullOrWhiteSpace(iedName) && domain.StartsWith(iedName, StringComparison.OrdinalIgnoreCase)
++            ? domain[iedName.Length..]
++            : domain;
++
++    private static string NormalizeReference(string? reference)
++        => (reference ?? string.Empty).Replace('$', '.').Replace("//", "/", StringComparison.Ordinal).Trim().ToUpperInvariant();
++
++    private static string SafeId(string? value)
++        => string.Concat((value ?? string.Empty).Where(character => char.IsLetterOrDigit(character) || character == '_'));
++
++    private sealed record SignalDescriptor(
++        string Domain,
++        string LogicalNode,
++        string DataObject,
++        string AttributePath,
++        string Reference,
++        string ObjectReference,
++        string FunctionalConstraint,
++        string DataType,
++        string Cdc);
++}
