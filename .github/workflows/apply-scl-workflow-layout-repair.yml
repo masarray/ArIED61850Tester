@@ -5,7 +5,7 @@ on:
     branches: [ main ]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   apply:
@@ -20,55 +20,50 @@ jobs:
 
       - name: Apply and validate reviewed transformations
         id: transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .repair/apply.py
+          python3 .repair/apply.py
+          base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
+          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+          grep -q 'TryClaimControlConfirmation' MainWindow.xaml.cs
+          grep -q 'SclFindingAggregator.Group(actionableFindings)' MainWindow.xaml.cs
+          grep -q '<Version>1.6.9</Version>' ArIED61850Tester.csproj
+          test -s Assets/app-icon.ico
+
+      - name: Commit repaired source
+        id: commit
         continue-on-error: true
         shell: bash
         run: |
           set -u
-          rm -f .repair/apply-error.txt
           set +e
           {
             set -x
-            python3 -m py_compile .repair/apply.py
-            python3 .repair/apply.py
-            base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
-            grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
-            ! grep -q 'Content="Confirm Open"' MainWindow.xaml
-            ! grep -q 'Content="Confirm Close"' MainWindow.xaml
-            grep -q 'TryClaimControlConfirmation' MainWindow.xaml.cs
-            grep -q 'SclFindingAggregator.Group(actionableFindings)' MainWindow.xaml.cs
-            grep -q '<Version>1.6.9</Version>' ArIED61850Tester.csproj
-            test -s Assets/app-icon.ico
-          } > .repair/apply-error.txt 2>&1
+            git status --short
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj .github/workflows/build.yml scripts/publish-windows-portable.ps1 Assets/app-icon.ico docs/SCL_SMART_DYNAMIC_REPORTING.md
+            git status --short
+            git commit -m "fix: repair SCL-first workflow and compact application layout"
+            git push origin HEAD:fix/scl-workflow-layout-repair
+          } > .repair/commit-error.txt 2>&1
           status=$?
           set -e
-          if [ "$status" -ne 0 ]; then
-            exit "$status"
-          fi
+          exit "$status"
 
-      - name: Upload repair failure evidence
-        if: steps.transform.outcome == 'failure'
+      - name: Upload commit failure evidence
+        if: steps.commit.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: scl-workflow-repair-error
-          path: .repair/apply-error.txt
+          name: scl-workflow-repair-commit-error
+          path: .repair/commit-error.txt
           if-no-files-found: error
 
-      - name: Stop after repair failure
-        if: steps.transform.outcome == 'failure'
+      - name: Stop after commit failure
+        if: steps.commit.outcome == 'failure'
         shell: bash
         run: exit 1
-
-      - name: Upload validated repaired source
-        if: steps.transform.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: scl-workflow-repaired-source
-          path: |
-            MainWindow.xaml
-            MainWindow.xaml.cs
-            ArIED61850Tester.csproj
-            .github/workflows/build.yml
-            scripts/publish-windows-portable.ps1
-            Assets/app-icon.ico
-            docs/SCL_SMART_DYNAMIC_REPORTING.md
-          if-no-files-found: error
