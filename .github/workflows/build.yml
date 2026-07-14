@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  ARIEC61850_REF: main
+  # Temporary integration pin. Switch to main after ARIEC61850 PR #27 is merged.
+  ARIEC61850_REF: fix/scl-dataset-binding-resolution
 
 jobs:
   build-windows:
@@ -51,6 +52,7 @@ jobs:
           $models = ".\ARIEC61850\src\AR.Iec61850\Control\Iec61850ControlModels.cs"
           $workspace = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceService.cs"
           $workspaceModels = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceModels.cs"
+          $sclModels = ".\ARIEC61850\src\AR.Iec61850\Scl\SclModels.cs"
           if (!(Test-Path $control) -or !(Test-Path $models)) {
             throw "ARIEC61850 Smart Control source was not found. ArIED requires the native Control namespace."
           }
@@ -66,6 +68,9 @@ jobs:
           if (!(Select-String -Path $workspace -Pattern "CompareLive" -Quiet)) {
             throw "ARIEC61850 SCL Workspace API does not expose design-versus-live comparison."
           }
+          if (!(Test-Path $sclModels) -or !(Select-String -Path $sclModels -Pattern "SclDataSetBindingStatus" -Quiet)) {
+            throw "ARIEC61850 P1 typed SCL DataSet binding contract was not found."
+          }
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -80,7 +85,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.7 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.8 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
