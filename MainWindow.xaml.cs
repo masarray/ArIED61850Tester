@@ -305,43 +305,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     private void LogSclFindings(string sourceName, IReadOnlyList<SclWorkspaceFinding> findings)
-{
-    if (findings.Count == 0)
-        return;
-
-    var groups = SclFindingAggregator.Group(findings);
-    if (groups.Count != findings.Count)
     {
-        AddLog(
-            "INFO",
-            "SCL",
-            $"{sourceName} • grouped {findings.Count} raw finding(s) into {groups.Count} diagnostic group(s). Full typed evidence remains attached to the SCL workspace.");
+        if (findings.Count == 0)
+            return;
+
+        var groups = SclFindingAggregator.Group(findings);
+        if (groups.Count != findings.Count)
+        {
+            AddLog(
+                "INFO",
+                "SCL",
+                $"{sourceName} • grouped {findings.Count} raw finding(s) into {groups.Count} diagnostic group(s). Full typed evidence remains attached to the SCL workspace.");
+        }
+
+        foreach (var group in groups.Take(40))
+        {
+            AddLog(
+                SclFindingAggregator.ToLogLevel(group.Severity),
+                "SCL",
+                $"{sourceName} • {group.Code} [{group.Scope}]: {group.ToDiagnosticMessage()}");
+        }
+
+        if (groups.Count > 40)
+        {
+            var omittedRawCount = groups
+                .Skip(40)
+                .Sum(group => group.Count);
+            AddLog(
+                "WARN",
+                "SCL",
+                $"{groups.Count - 40} additional diagnostic group(s), representing {omittedRawCount} raw finding(s), were omitted from the live log.");
+        }
+
+        if (groups.Any(group => SclFindingAggregator.IsBlockingSeverity(group.Severity)))
+            MarkDiagnosticAlert();
     }
 
-    foreach (var group in groups.Take(40))
-    {
-        AddLog(
-            SclFindingAggregator.ToLogLevel(group.Severity),
-            "SCL",
-            $"{sourceName} • {group.Code} [{group.Scope}]: {group.ToDiagnosticMessage()}");
-    }
-
-    if (groups.Count > 40)
-    {
-        var omittedRawCount = groups
-            .Skip(40)
-            .Sum(group => group.Count);
-        AddLog(
-            "WARN",
-            "SCL",
-            $"{groups.Count - 40} additional diagnostic group(s), representing {omittedRawCount} raw finding(s), were omitted from the live log.");
-    }
-
-    if (groups.Any(group => SclFindingAggregator.IsBlockingSeverity(group.Severity)))
-        MarkDiagnosticAlert();
-}
-
-private bool EnsureSclEndpointBinding(Iec61850MonitorDevice device)
+    private bool EnsureSclEndpointBinding(Iec61850MonitorDevice device)
     {
         if (!device.RequiresEndpointBinding)
             return true;
