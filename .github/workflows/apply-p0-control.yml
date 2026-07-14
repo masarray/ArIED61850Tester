@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   apply:
-    if: ${{ github.event.pull_request.head.ref == 'fix/atomic-control-confirmation' && !contains(github.event.pull_request.head.sha, '[applied]') }}
+    if: ${{ github.event.pull_request.head.ref == 'fix/atomic-control-confirmation' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout P0 branch
@@ -19,9 +19,16 @@ jobs:
           fetch-depth: 0
 
       - name: Apply reviewed source patches
+        id: patch
         shell: bash
         run: |
           set -euo pipefail
+          if [ ! -d .p0 ]; then
+            echo "applied=false" >> "$GITHUB_OUTPUT"
+            echo "Source patches were already applied."
+            exit 0
+          fi
+
           for patch in \
             .p0/Models__SignalDefinition.cs.patch \
             .p0/MainWindow.xaml.cs.patch \
@@ -34,8 +41,10 @@ jobs:
             git apply "$patch"
           done
           rm -rf .p0
+          echo "applied=true" >> "$GITHUB_OUTPUT"
 
       - name: Commit atomic confirmation implementation
+        if: ${{ steps.patch.outputs.applied == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
