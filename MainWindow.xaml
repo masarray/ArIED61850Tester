@@ -9,44 +9,12 @@
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Premium compact application bar restored from the original ArServer shell. -->
-        <Grid Grid.Row="0" Height="44" Margin="0,0,0,10">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Border Width="25" Height="25" CornerRadius="12" Margin="0,0,12,0" ClipToBounds="True">
-                    <Image Source="Assets/app-icon.png" Width="25" Height="25" RenderOptions.BitmapScalingMode="HighQuality"/>
-                </Border>
-                <TextBlock Text="ArIED 61850" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
-                <Border Width="1" Height="21" Background="{StaticResource Line}" Margin="14,0"/>
-                <TextBlock Text="Smart IED Explorer &amp; Monitor" FontSize="13.2" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/>
-            </StackPanel>
-            <TextBlock Grid.Column="1"
-                       Text="Fast workflow: add IED or open SCL → verify live model → choose signals → monitor independently"
-                       FontSize="12.5" Foreground="{StaticResource Muted}"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="📂 Open Project" Style="{StaticResource MiniChipButton}" Click="OpenProject_Click" Margin="0,0,8,0"/>
-                <Button Content="💾 Save Project" Style="{StaticResource MiniChipButton}" Click="SaveProject_Click" Margin="0,0,10,0"/>
-                <Border Background="#EAF1FF" CornerRadius="16" Padding="12,7">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Session" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,0,7,0"/>
-                        <TextBlock Text="{Binding HeaderStatusText}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource Accent}"/>
-                    </StackPanel>
-                </Border>
-            </StackPanel>
-        </Grid>
-
-        <!-- Restored premium segmented navigation. No global runtime switch: each IED owns its session. -->
-        <Grid Grid.Row="1" Margin="0,0,0,10">
+        <!-- Compact navigation row: the large top application bar was removed to free vertical space. -->
+        <Grid Grid.Row="0" Margin="0,0,0,10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -104,7 +72,7 @@
             </WrapPanel>
         </Grid>
 
-        <TabControl x:Name="MainTabs" Grid.Row="2" SelectedIndex="0"
+        <TabControl x:Name="MainTabs" Grid.Row="1" SelectedIndex="0"
                     Style="{StaticResource HiddenTabControl}"
                     SelectionChanged="MainTabs_SelectionChanged">
             <!-- IEC 61850 EXPLORER -->
@@ -119,9 +87,25 @@
                     <Border Grid.Column="0" Style="{StaticResource Card}" Padding="10">
                         <DockPanel>
                             <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
                                 <StackPanel Orientation="Horizontal">
                                     <Ellipse Width="8" Height="8" Fill="{StaticResource Accent}" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                    <TextBlock Text="IED Explorer" FontSize="15.5" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                                    <TextBlock Text="IED Explorer" FontSize="15.5" FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Style="{StaticResource IedIconButton}" Click="OpenProject_Click" ToolTip="Open ArIED project" Margin="0,0,6,0">
+                                        <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24">
+                                            <Path Data="M6,3 H14 L19,8 V21 H6 Z M14,3 V8 H19 M9,12 H16 M9,16 H16" Stroke="#2563EB" StrokeThickness="1.8" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                        </Canvas></Viewbox>
+                                    </Button>
+                                    <Button Style="{StaticResource IedIconButton}" Click="SaveProject_Click" ToolTip="Save ArIED project">
+                                        <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24">
+                                            <Path Data="M5,4 H17 L19,6 V20 H5 Z M8,4 V9 H16 V4 M9,20 V14 H15 V20" Stroke="#2563EB" StrokeThickness="1.8" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                        </Canvas></Viewbox>
+                                    </Button>
                                 </StackPanel>
                             </Grid>
 
@@ -544,9 +528,32 @@
                                                                                     </Style.Triggers>
                                                                                 </Style>
                                                                             </StackPanel.Style>
-                                                                            <Button Content="{Binding ControlPendingConfirmationLabel}" Tag="{Binding}" Click="ControlConfirmAction_Click"
-                                                                                    Style="{StaticResource CommandConfirmButton}"
-                                                                                    IsEnabled="{Binding ControlCanConfirm}" Margin="0,0,7,0"/>
+                                                                            <Button Content="Confirm Open" Tag="{Binding}" Click="ControlConfirmAction_Click"
+                                                                                    IsEnabled="{Binding ControlCanConfirm}" Margin="0,0,7,0">
+                                                                                <Button.Style>
+                                                                                    <Style TargetType="Button" BasedOn="{StaticResource CommandOpenButton}">
+                                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding ControlPendingAction}" Value="Open">
+                                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </Button.Style>
+                                                                            </Button>
+                                                                            <Button Content="Confirm Close" Tag="{Binding}" Click="ControlConfirmAction_Click"
+                                                                                    IsEnabled="{Binding ControlCanConfirm}" Margin="0,0,7,0">
+                                                                                <Button.Style>
+                                                                                    <Style TargetType="Button" BasedOn="{StaticResource CommandCloseButton}">
+                                                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                                                        <Style.Triggers>
+                                                                                            <DataTrigger Binding="{Binding ControlPendingAction}" Value="Close">
+                                                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                                                            </DataTrigger>
+                                                                                        </Style.Triggers>
+                                                                                    </Style>
+                                                                                </Button.Style>
+                                                                            </Button>
                                                                             <Button Content="Cancel" Tag="{Binding}" Click="ControlCancelAction_Click"
                                                                                     Style="{StaticResource SoftButton}" Padding="12,6"/>
                                                                         </StackPanel>
@@ -815,7 +822,7 @@
             </TabItem>
         </TabControl>
 
-        <Border Grid.Row="3" Margin="0,10,0,0" Background="#EAF1FF" BorderBrush="#CFE0FF" BorderThickness="1" CornerRadius="14" Padding="11,7">
+        <Border Grid.Row="2" Margin="0,10,0,0" Background="#EAF1FF" BorderBrush="#CFE0FF" BorderThickness="1" CornerRadius="14" Padding="11,7">
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">

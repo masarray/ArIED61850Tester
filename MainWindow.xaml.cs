@@ -44,6 +44,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _hasUnreadDiagnosticError;
     private bool _signalSelectionWizardOpen;
     private bool _connectAllInProgress;
+    private readonly HashSet<string> _autoExpandedCommandDevices = new(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<Iec61850MonitorDevice> Devices { get; } = new();
     public BulkObservableCollection<Iec61850MonitorPoint> GlobalPoints { get; } = new();
@@ -85,6 +86,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Raise(nameof(ActiveIedTitle));
             Raise(nameof(ActiveIedSubtitle));
             RaiseWorkspaceCounts();
+            TryAutoExpandCommandPanelOnce(_selectedDevice);
             // ctlModel inspection is preloaded independently of the Expander. Avoid
             // changing the row set after the panel's first frame has already painted.
         }
@@ -223,6 +225,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var status = $"{sourceName}: {document.Ieds.Count} IED/AP workspace(s), {offlineCount} offline model(s), {endpointCount} MMS endpoint(s) — {added} added, {refreshed} refreshed, {retained} active retained.";
             SetStatus(status);
             AddLog("INFO", "SCL", status);
+
+            if (firstImported != null && firstImported.Signals.Count > 0)
+            {
+                AddLog("INFO", "SCL", $"{firstImported.Name}: choose the signals you want first; connect after saving the selection.");
+                await OpenSignalSelectionWizardAsync(firstImported, autoStartAfterSave: false);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -272,7 +280,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             device.Port = 102;
         }
 
-        device.AllowDynamicDataSetWrites = false;
+        var allowDynamicReporting = ShouldAllowDynamicReportingForScl(signals);
+        device.AllowDynamicDataSetWrites = allowDynamicReporting;
         device.SclWorkspace = workspace;
         device.SclComparison = null;
         device.SclSourcePath = document.SourcePath;
@@ -281,10 +290,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         device.SclAccessPointName = workspace.AccessPointName;
         device.HasDiscoveryCache = signals.Count > 0;
         device.Status = workspace.RequiresEndpointBinding ? "SCL model ready — bind endpoint" : "SCL model ready";
-        device.Detail = workspace.RequiresEndpointBinding
-            ? "LD/LN/DO/DA are available offline. Press Play to bind an MMS endpoint; no discovery traffic was sent while opening the file."
-            : "LD/LN/DO/DA were loaded offline. Play performs a fast MMS association; Re-scan performs full design-versus-live verification.";
-        device.AcquisitionMode = "SCL offline design model";
+        device.Detail = allowDynamicReporting
+            ? (workspace.RequiresEndpointBinding
+                ? "LD/LN/DO/DA are available offline. No static SCL DataSet coverage was found, so ArIED will prepare dynamic reporting from the user-selected signals after endpoint binding."
+                : "LD/LN/DO/DA were loaded offline. No static SCL DataSet coverage was found, so Play will try dynamic reporting from the user-selected signals before falling back to polling.")
+            : (workspace.RequiresEndpointBinding
+                ? "LD/LN/DO/DA are available offline. Press Play to bind an MMS endpoint; no discovery traffic was sent while opening the file."
+                : "LD/LN/DO/DA were loaded offline. Play performs a fast MMS association; Re-scan performs full design-versus-live verification.");
+        device.AcquisitionMode = allowDynamicReporting
+            ? "SCL offline design model • dynamic reporting prepared"
+            : "SCL offline design model";
 
         foreach (var signal in signals)
         {
@@ -306,39 +321,70 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void LogSclFindings(string sourceName, IReadOnlyList<SclWorkspaceFinding> findings)
     {
-        if (findings.Count == 0)
-            return;
+        var suppressedDynamicHints = findings
+            .Where(IsDynamicReportingHint)
+            .ToList();
+        var actionableFindings = findings
+            .Where(finding => !IsDynamicReportingHint(finding))
+            .ToList();
 
-        var groups = SclFindingAggregator.Group(findings);
-        if (groups.Count != findings.Count)
+        if (suppressedDynamicHints.Count > 0)
         {
             AddLog(
                 "INFO",
                 "SCL",
-                $"{sourceName} • grouped {findings.Count} raw finding(s) into {groups.Count} diagnostic group(s). Full typed evidence remains attached to the SCL workspace.");
+                $"{sourceName}: {suppressedDynamicHints.Count} static report/DataSet hint(s) were treated as informational only. ArIED will prepare dynamic reporting when the SCL file does not carry usable DataSet bindings.");
         }
 
-        foreach (var group in groups.Take(40))
+        foreach (var finding in actionableFindings.Take(40))
         {
-            AddLog(
-                SclFindingAggregator.ToLogLevel(group.Severity),
-                "SCL",
-                $"{sourceName} • {group.Code} [{group.Scope}]: {group.ToDiagnosticMessage()}");
+            var level = finding.Severity.Equals("High", StringComparison.OrdinalIgnoreCase) ||
+                        finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)
+                ? "ERROR"
+                : finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
+            AddLog(level, "SCL", $"{sourceName} • {finding.Code}: {finding.Message}");
         }
-
-        if (groups.Count > 40)
-        {
-            var omittedRawCount = groups
-                .Skip(40)
-                .Sum(group => group.Count);
-            AddLog(
-                "WARN",
-                "SCL",
-                $"{groups.Count - 40} additional diagnostic group(s), representing {omittedRawCount} raw finding(s), were omitted from the live log.");
-        }
-
-        if (groups.Any(group => SclFindingAggregator.IsBlockingSeverity(group.Severity)))
+        if (actionableFindings.Count > 40)
+            AddLog("WARN", "SCL", $"{actionableFindings.Count - 40} additional actionable finding(s) were omitted from the live log.");
+        if (actionableFindings.Any(finding => finding.Severity is "High" or "Error"))
             MarkDiagnosticAlert();
+    }
+
+    private static bool IsDynamicReportingHint(SclWorkspaceFinding finding)
+    {
+        var code = finding.Code?.Trim() ?? string.Empty;
+        var severity = finding.Severity?.Trim() ?? string.Empty;
+        if (!severity.Equals("Warning", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return code.Equals("SCL_REPORT_DATASET_UNASSIGNED", StringComparison.OrdinalIgnoreCase) ||
+               code.Equals("SCL_REPORT_DATASET_UNRESOLVED", StringComparison.OrdinalIgnoreCase) ||
+               code.Equals("SCL_REPORT_DATASET_MISSING", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldAllowDynamicReportingForScl(IReadOnlyCollection<SignalDefinition> signals)
+    {
+        var hasStaticCoverage = signals.Any(signal =>
+            !string.IsNullOrWhiteSpace(signal.ReportControlReference) ||
+            !string.IsNullOrWhiteSpace(signal.DataSetReference));
+
+        return !hasStaticCoverage;
+    }
+
+    private void TryAutoExpandCommandPanelOnce(Iec61850MonitorDevice? device)
+    {
+        if (device == null || CommandPanelExpander == null)
+            return;
+        if (device.CommandSignals.Count == 0)
+            return;
+        if (!_autoExpandedCommandDevices.Add(device.DeviceId))
+            return;
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            if (ReferenceEquals(SelectedDevice, device) && CommandPanelExpander != null)
+                CommandPanelExpander.IsExpanded = true;
+        }));
     }
 
     private bool EnsureSclEndpointBinding(Iec61850MonitorDevice device)
@@ -357,7 +403,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         device.IpAddress = wizard.RelayIpAddress;
         device.Port = wizard.MmsPort;
         device.Status = "SCL model ready";
-        device.Detail = "Endpoint bound locally. Play will fast-connect from the SCL design model; Re-scan performs full comparison.";
+        device.Detail = device.AllowDynamicDataSetWrites
+            ? "Endpoint bound locally. ArIED will try dynamic reporting from the user-selected signals because the SCL file did not provide usable static DataSet coverage. Re-scan still performs full comparison."
+            : "Endpoint bound locally. Play will fast-connect from the SCL design model; Re-scan performs full comparison.";
         device.RefreshComputed();
         NewDeviceIp = device.IpAddress;
         NewDevicePort = device.Port.ToString(CultureInfo.InvariantCulture);
@@ -991,20 +1039,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await Task.WhenAll(candidates.Select(async signal =>
         {
             await throttle.WaitAsync(_applicationCancellation.Token);
-            signal.ControlInspectionBusy = true;
+            signal.ControlIsBusy = true;
             try
             {
                 var capabilities = await _runtime.InspectControlAsync(
                     device.DeviceId,
                     signal,
                     _applicationCancellation.Token);
-                if (!signal.ControlCommandBusy)
-                {
-                    signal.ControlCurrentValue = capabilities.CurrentValue;
-                    signal.ControlLastResult = capabilities.SupportsOperate
-                        ? capabilities.ControlModelText
-                        : "Control unavailable";
-                }
+                signal.ControlCurrentValue = capabilities.CurrentValue;
+                signal.ControlLastResult = capabilities.SupportsOperate
+                    ? capabilities.ControlModelText
+                    : "Control unavailable";
             }
             catch (OperationCanceledException)
             {
@@ -1012,18 +1057,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                if (!signal.ControlCommandBusy)
-                    signal.ControlLastResult = $"Status read failed: {ex.Message}";
+                signal.ControlLastResult = $"Status read failed: {ex.Message}";
             }
             finally
             {
-                signal.ControlInspectionBusy = false;
+                signal.ControlIsBusy = false;
                 throttle.Release();
             }
         }));
 
         device.RefreshCommandSignalProjection();
         RebuildControlFeedbackIndex(device);
+        TryAutoExpandCommandPanelOnce(device);
         SetStatus($"{device.Name}: refreshed {candidates.Length} control value(s).");
     }
 
@@ -1031,24 +1076,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (sender is not Button button || button.Tag is not SignalDefinition signal || !signal.IsPositionControl)
             return;
+        if (signal.ControlIsBusy || !signal.ControlSupportsOperate)
+            return;
 
-        var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
         var requestedValue = button.CommandParameter?.ToString()?.Trim() ?? string.Empty;
         var actionLabel = button.Content?.ToString()?.Trim() ?? string.Empty;
-        AddLog("INFO", device?.Name ?? "IED",
-            $"Control confirmation stage click received: {signal.ObjectReference}; action={actionLabel}; value={requestedValue}; commandBusy={signal.ControlCommandBusy}; inspectionBusy={signal.ControlInspectionBusy}.");
-
-        if (!signal.TryStageControlConfirmation(requestedValue, actionLabel, out var rejectionReason))
-        {
-            signal.ControlLastResult = $"Command not staged: {rejectionReason}.";
-            AddLog("WARN", device?.Name ?? "IED",
-                $"Control confirmation stage rejected: {signal.ObjectReference}; reason={rejectionReason}.");
-            SetStatus($"{device?.Name ?? "IED"}: {signal.Name} command not staged — {rejectionReason}.");
+        if (string.IsNullOrWhiteSpace(requestedValue) || string.IsNullOrWhiteSpace(actionLabel))
             return;
-        }
 
-        AddLog("INFO", device?.Name ?? "IED",
-            $"Control confirmation staged: {signal.ObjectReference}; action={actionLabel}; value={requestedValue}.");
+        signal.StageControlConfirmation(requestedValue, actionLabel);
+        var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
         SetStatus($"{device?.Name ?? "IED"}: review {signal.Name} — {signal.ControlPendingConfirmationLabel}, or Cancel.");
     }
 
@@ -1056,23 +1093,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (sender is not Button button || button.Tag is not SignalDefinition signal)
             return;
-
-        var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
-        AddLog("INFO", device?.Name ?? "IED",
-            $"Confirm click received: {signal.ObjectReference}; pending={signal.ControlConfirmationPending}; action={signal.ControlPendingAction}; value={signal.ControlPendingValue}; commandBusy={signal.ControlCommandBusy}; inspectionBusy={signal.ControlInspectionBusy}.");
-
-        if (!signal.TryClaimControlConfirmation(out var claim, out var rejectionReason) || claim == null)
-        {
-            signal.ControlLastResult = $"Confirmation rejected: {rejectionReason}.";
-            AddLog("WARN", device?.Name ?? "IED",
-                $"Confirm rejected: {signal.ObjectReference}; reason={rejectionReason}.");
-            SetStatus($"{device?.Name ?? "IED"}: {signal.Name} confirmation rejected — {rejectionReason}.");
+        if (!signal.ControlCanConfirm || string.IsNullOrWhiteSpace(signal.ControlPendingValue))
             return;
-        }
 
-        AddLog("INFO", device?.Name ?? "IED",
-            $"Confirm accepted: {signal.ObjectReference}; sequence={claim.Sequence}; action={claim.ActionLabel}; value={claim.RequestedValue}.");
-        await ExecuteClaimedControlAsync(signal, claim);
+        var requestedValue = signal.ControlPendingValue;
+        signal.ClearControlConfirmation();
+        await ExecuteQuickControlAsync(signal, requestedValue);
     }
 
     private void ControlCancelAction_Click(object sender, RoutedEventArgs e)
@@ -1083,8 +1109,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var action = signal.ControlPendingAction;
         signal.ClearControlConfirmation();
         var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
-        AddLog("INFO", device?.Name ?? "IED",
-            $"Control confirmation cancelled: {signal.ObjectReference}; action={action}.");
         SetStatus($"{device?.Name ?? "IED"}: {signal.Name} {action} cancelled before dispatch.");
     }
 
@@ -1102,37 +1126,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
-        if (!signal.TryBeginDirectControlCommand(
-                requestedValue,
-                button.Content?.ToString()?.Trim() ?? requestedValue,
-                out var claim,
-                out var rejectionReason) || claim == null)
-        {
-            signal.ControlLastResult = $"Command rejected: {rejectionReason}.";
-            AddLog("WARN", device?.Name ?? "IED",
-                $"Direct control rejected: {signal.ObjectReference}; reason={rejectionReason}.");
-            SetStatus($"{device?.Name ?? "IED"}: {signal.Name} command rejected — {rejectionReason}.");
-            return;
-        }
-
-        await ExecuteClaimedControlAsync(signal, claim);
+        await ExecuteQuickControlAsync(signal, requestedValue);
     }
 
-    private async Task ExecuteClaimedControlAsync(SignalDefinition signal, ControlCommandClaim claim)
+    private async Task ExecuteQuickControlAsync(SignalDefinition signal, string requestedValue)
     {
         var device = _signalOwners.TryGetValue(signal, out var owner) ? owner : SelectedDevice;
         if (device == null)
+            return;
+
+        if (signal.ControlIsBusy)
         {
-            signal.CompleteControlCommand(claim);
+            SetStatus($"{device.Name}: {signal.Name} command is already in progress.");
             return;
         }
 
         var clickStopwatch = Stopwatch.StartNew();
-        signal.ControlLastResult = $"Dispatching {claim.RequestedValue}…";
-        SetStatus($"{device.Name}: dispatching {signal.Name} = {claim.RequestedValue}…");
+        signal.ControlIsBusy = true;
+        signal.ControlLastResult = $"Dispatching {requestedValue}…";
+        SetStatus($"{device.Name}: dispatching {signal.Name} = {requestedValue}…");
         AddLog("INFO", device.Name,
-            $"Dispatch ownership acquired: {signal.ObjectReference}; sequence={claim.Sequence}; value={claim.RequestedValue}; test={signal.ControlTestMode}; interlock={signal.ControlInterlockCheck}; synchro={signal.ControlSynchroCheck}.");
+            $"Control click accepted: {signal.ObjectReference} value={requestedValue}; test={signal.ControlTestMode}; interlock={signal.ControlInterlockCheck}; synchro={signal.ControlSynchroCheck}.");
         await Dispatcher.Yield(DispatcherPriority.Render);
 
         try
@@ -1147,14 +1161,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     return;
             }
 
-            AddLog("INFO", device.Name,
-                $"MMS command submitted: {signal.ObjectReference}; sequence={claim.Sequence}; value={claim.RequestedValue}.");
+            // ExecuteControlAsync owns one live status preflight and the complete control
+            // sequence. The old UI path performed a second status read before this call,
+            // which added queue latency and created a stale-value race.
             var result = await _runtime.ExecuteControlAsync(
                 device.DeviceId,
                 new Iec61850ControlCommandRequest
                 {
                     Signal = signal,
-                    ValueText = claim.RequestedValue,
+                    ValueText = requestedValue,
                     InterlockCheck = signal.ControlInterlockCheck,
                     SynchroCheck = signal.ControlSynchroCheck,
                     TestMode = signal.ControlTestMode,
@@ -1174,7 +1189,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             SetStatus($"{device.Name}: {signal.Name} — {signal.ControlLastResult}");
             clickStopwatch.Stop();
             AddLog(result.IsSuccess ? "INFO" : "WARN", device.Name,
-                $"Control UI timing: {signal.ObjectReference}; sequence={claim.Sequence}; click-to-result={clickStopwatch.Elapsed.TotalMilliseconds:0.###} ms; engine-total={result.TotalElapsedText}; serviceAccepted={result.ServiceAccepted}; stage={result.Stage}.");
+                $"Control UI timing: {signal.ObjectReference}; click-to-result={clickStopwatch.Elapsed.TotalMilliseconds:0.###} ms; engine-total={result.TotalElapsedText}; serviceAccepted={result.ServiceAccepted}; stage={result.Stage}.");
         }
         catch (OperationCanceledException)
         {
@@ -1190,12 +1205,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         finally
         {
-            if (!signal.CompleteControlCommand(claim))
-            {
-                AddLog("ERROR", device.Name,
-                    $"Control ownership release mismatch: {signal.ObjectReference}; sequence={claim.Sequence}.");
-                MarkDiagnosticAlert();
-            }
+            signal.ControlIsBusy = false;
+            signal.ClearControlConfirmation();
         }
     }
 
@@ -1677,7 +1688,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     LogicalDeviceSummary = profile.LogicalDeviceSummary,
                     IpAddress = profile.IpAddress,
                     Port = profile.Port <= 0 ? 102 : profile.Port,
-                    AllowDynamicDataSetWrites = hasSclProvenance ? false : profile.AllowDynamicDataSetWrites,
+                    AllowDynamicDataSetWrites = hasSclProvenance
+                        ? ShouldAllowDynamicReportingForScl(cachedSignals)
+                        : profile.AllowDynamicDataSetWrites,
                     SclWorkspace = restoredSclWorkspace,
                     SclSourcePath = profile.SclSourcePath,
                     SclSourceSha256 = profile.SclSourceSha256,
