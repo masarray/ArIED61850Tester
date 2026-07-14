@@ -1,0 +1,46 @@
+name: Apply repaired SCL workflow and layout
+
+on:
+  push:
+    branches: [ fix/scl-workflow-layout-repair ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/scl-workflow-layout-repair
+          fetch-depth: 0
+
+      - name: Apply reviewed source transformations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .repair/apply.py
+          base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
+
+          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+          grep -q 'TryClaimControlConfirmation' MainWindow.xaml.cs
+          grep -q 'SclFindingAggregator.Group(actionableFindings)' MainWindow.xaml.cs
+          grep -q '<Version>1.6.9</Version>' ArIED61850Tester.csproj
+          test -s Assets/app-icon.ico
+
+          rm -rf .repair
+          rm -f .github/workflows/apply-scl-workflow-layout-repair.yml
+
+      - name: Commit repaired implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: repair SCL-first workflow and compact application layout"
+          git push origin HEAD:fix/scl-workflow-layout-repair
