@@ -80,7 +80,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.6 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.7 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
