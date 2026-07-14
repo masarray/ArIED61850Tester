@@ -51,7 +51,7 @@ $ForbiddenTextPatterns = @(
 )
 
 $TextExtensions = @(
-    ".md", ".cs", ".xml", ".xaml", ".ps1", ".cmd", ".yml", ".yaml",
+    ".md", ".cs", ".xml", ".xaml", ".ps1", ".py", ".cmd", ".yml", ".yaml",
     ".html", ".css", ".js", ".json", ".webmanifest", ".svg",
     ".props", ".targets", ".sln", ".slnx", ".txt"
 )
