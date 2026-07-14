@@ -159,8 +159,11 @@ The application enables Send Command only when the native descriptor reports `Is
 - `SMART_CONTROL_FEEDBACK_AUDIT.md`
 - `ENGINE_COMPATIBILITY.md`
 - `NEXT_PHASE_PROGRESS.md`
-- `docs/ARCHITECTURE.md`
-- `docs/VALIDATION_CHECKLIST.md`
+- [Architecture](docs/ARCHITECTURE.md)
+- [Validation Checklist](docs/VALIDATION_CHECKLIST.md)
+- [Clean-Room and Interoperability Policy](docs/CLEAN_ROOM_AND_INTEROPERABILITY_POLICY.md)
+- [Third-Party Clean-Room Audit — 2026-07-14](docs/THIRD_PARTY_CLEAN_ROOM_AUDIT_2026-07-14.md)
+- [License and Provenance Audit — 2026-07-14](docs/LICENSE_AUDIT_2026-07-14.md)
 
 ## Validation status
 
