@@ -1,0 +1,42 @@
+--- a/App.xaml
++++ b/App.xaml
+@@ -257,6 +257,39 @@
+                     </ControlTemplate>
+                 </Setter.Value>
+             </Setter>
++        </Style>
++
++        <Style x:Key="CommandConfirmButton" TargetType="Button">
++            <Setter Property="Background" Value="#ECFDF3"/>
++            <Setter Property="Foreground" Value="#067647"/>
++            <Setter Property="BorderBrush" Value="#ABEFC6"/>
++            <Setter Property="BorderThickness" Value="1"/>
++            <Setter Property="Padding" Value="14,6"/>
++            <Setter Property="MinWidth" Value="108"/>
++            <Setter Property="MinHeight" Value="31"/>
++            <Setter Property="FontWeight" Value="SemiBold"/>
++            <Setter Property="Cursor" Value="Hand"/>
++            <Setter Property="Template">
++                <Setter.Value>
++                    <ControlTemplate TargetType="Button">
++                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11">
++                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
++                        </Border>
++                        <ControlTemplate.Triggers>
++                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.90"/></Trigger>
++                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.74"/></Trigger>
++                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.42"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
++                        </ControlTemplate.Triggers>
++                    </ControlTemplate>
++                </Setter.Value>
++            </Setter>
++            <Style.Triggers>
++                <DataTrigger Binding="{Binding ControlPendingAction}" Value="Close">
++                    <Setter Property="Background" Value="#FEF3F2"/>
++                    <Setter Property="Foreground" Value="#B42318"/>
++                    <Setter Property="BorderBrush" Value="#FECDCA"/>
++                </DataTrigger>
++            </Style.Triggers>
+         </Style>
+ 
+         <Style x:Key="IedIconButton" TargetType="Button">
