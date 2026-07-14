@@ -8,7 +8,8 @@ This directory contains the engineering, validation, licensing, provenance, and 
 |---|---|
 | [Project README](../README.md) | Product overview, feature summary, quick start, build instructions, and public claim boundary. |
 | [Architecture](ARCHITECTURE.md) | Multi-IED ownership, model identity, report-first acquisition, runtime scaling, and timestamp semantics. |
-| [Validation checklist](VALIDATION_CHECKLIST.md) | Build, simulator, reporting, monitoring, control, and live-device acceptance checks. |
+| [Validation checklist](VALIDATION_CHECKLIST.md) | Discovery, reporting, monitoring, recovery, and control acceptance checks. |
+| [UI validation](UI_VALIDATION.md) | Windows scaling, keyboard workflow, accessibility, multi-IED, and command-panel checks. |
 | [Engine compatibility](../ENGINE_COMPATIBILITY.md) | Required ARIEC61850 source contracts and project-reference layout. |
 
 ## Control engineering
@@ -17,7 +18,6 @@ This directory contains the engineering, validation, licensing, provenance, and 
 |---|---|
 | [ARIEC61850 Smart Control integration](../ARIEC61850_SMART_CONTROL_INTEGRATION.md) | Application-to-engine control service integration. |
 | [Smart Control feedback audit](../SMART_CONTROL_FEEDBACK_AUDIT.md) | Control completion, feedback mapping, and evidence boundaries. |
-| [Control UI verification](CONTROL_UI_VERIFICATION.md) | Command-panel interaction and display checks. |
 | [Close feedback event verification](close-feedback-event-verification.md) | Event-driven feedback confirmation workflow. |
 
 ## Application workflow and progress records
@@ -26,7 +26,7 @@ This directory contains the engineering, validation, licensing, provenance, and 
 |---|---|
 | [Phase progress](../NEXT_PHASE_PROGRESS.md) | Detailed signal-selection behavior and validation record. |
 | [Connection diagnostic audit](../CONNECTION_DIAGNOSTIC_AUDIT.md) | Example route and connection-failure reasoning. |
-| [Implementation audit](../IMPLEMENTATION_AUDIT.md) | Application implementation review. |
+| [Changelog](../CHANGELOG.md) | Public application, documentation, website, and release history. |
 
 ## Licensing and provenance
 
@@ -40,6 +40,7 @@ This directory contains the engineering, validation, licensing, provenance, and 
 ## Project policies
 
 - [Contributing](../CONTRIBUTING.md)
+- [Community conduct](../CODE_OF_CONDUCT.md)
 - [Security](../SECURITY.md)
 - [Support](../SUPPORT.md)
 - [License](../LICENSE)
