@@ -21,31 +21,34 @@ jobs:
       - name: Apply reviewed source transformations
         shell: bash
         run: |
-          set -euo pipefail
-          python3 -m py_compile .repair/apply.py
+          set -u
           rm -f .repair/apply-error.txt
           set +e
-          python3 .repair/apply.py > .repair/apply-error.txt 2>&1
+          {
+            set -x
+            python3 -m py_compile .repair/apply.py
+            python3 .repair/apply.py
+            base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
+            grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+            grep -q 'TryClaimControlConfirmation' MainWindow.xaml.cs
+            grep -q 'SclFindingAggregator.Group(actionableFindings)' MainWindow.xaml.cs
+            grep -q '<Version>1.6.9</Version>' ArIED61850Tester.csproj
+            test -s Assets/app-icon.ico
+          } > .repair/apply-error.txt 2>&1
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
+            git checkout -- MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj .github/workflows/build.yml scripts/publish-windows-portable.ps1 2>/dev/null || true
+            rm -f docs/SCL_SMART_DYNAMIC_REPORTING.md Assets/app-icon.ico
             git config user.name "github-actions[bot]"
             git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
             git add .repair/apply-error.txt
-            git commit -m "debug: capture repair transformation mismatch"
+            git commit -m "debug: capture repair validation failure"
             git push origin HEAD:fix/scl-workflow-layout-repair
             exit "$status"
           fi
-
-          base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
-
-          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
-          grep -q 'TryClaimControlConfirmation' MainWindow.xaml.cs
-          grep -q 'SclFindingAggregator.Group(actionableFindings)' MainWindow.xaml.cs
-          grep -q '<Version>1.6.9</Version>' ArIED61850Tester.csproj
-          test -s Assets/app-icon.ico
 
           rm -rf .repair
           rm -f .github/workflows/apply-scl-workflow-layout-repair.yml
