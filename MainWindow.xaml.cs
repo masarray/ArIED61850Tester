@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using AR.Iec61850.Scl.Workspace;
 using ArIED61850Tester.Models;
 using ArIED61850Tester.Services;
 using Microsoft.Win32;
@@ -20,6 +21,7 @@ namespace ArIED61850Tester;
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
     private readonly Iec61850MonitorRuntime _runtime = new();
+    private readonly SclWorkspaceService _sclWorkspaceService = new();
     private readonly CancellationTokenSource _applicationCancellation = new();
     private readonly Dictionary<string, HashSet<string>> _pendingProjectSelections = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<SignalDefinition, Iec61850MonitorDevice> _signalOwners = new();
@@ -160,28 +162,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
 
         var sourceName = Path.GetFileName(dialog.FileName);
-        SetStatus($"Reading IED endpoints from {sourceName}…");
+        SetStatus($"Opening {sourceName} as an offline IEC 61850 design model…");
         try
         {
-            var result = await SclImportService.LoadAsync(dialog.FileName, _applicationCancellation.Token);
-            foreach (var warning in result.Warnings.Take(25))
-                AddLog("WARN", "SCL", warning);
-            if (result.Warnings.Count > 25)
-                AddLog("WARN", "SCL", $"{result.Warnings.Count - 25} additional SCL warning(s) were omitted from the live log.");
+            var document = await _sclWorkspaceService.OpenAsync(
+                dialog.FileName,
+                cancellationToken: _applicationCancellation.Token);
+            LogSclFindings(sourceName, document.Findings);
 
-            if (result.Endpoints.Count == 0)
+            if (document.Ieds.Count == 0)
             {
-                var reason = result.ConnectedAccessPointCount == 0
-                    ? "No ConnectedAP communication entries were found."
-                    : "ConnectedAP entries were found, but none contained a valid IP address.";
-                SetStatus($"{sourceName}: no usable IEC 61850 MMS endpoints. {reason}");
-                AddLog("WARN", "SCL", $"{sourceName}: {reason}");
-                MessageBox.Show(
-                    this,
-                    $"No usable IEC 61850 MMS endpoint was found in {sourceName}.\n\n{reason}\n\nThe file may contain only an IED template without a Communication section.",
-                    "Open SCL",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                SetStatus($"{sourceName}: no IED model was found.");
+                AddLog("WARN", "SCL", $"{sourceName}: the engine returned no IED workspace.");
                 return;
             }
 
@@ -190,51 +182,33 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var retained = 0;
             Iec61850MonitorDevice? firstImported = null;
 
-            foreach (var endpoint in result.Endpoints)
+            foreach (var workspace in document.Ieds)
             {
                 var device = Devices.FirstOrDefault(item =>
-                    item.IpAddress.Equals(endpoint.IpAddress, StringComparison.OrdinalIgnoreCase) &&
-                    item.Port == endpoint.Port);
+                    item.SclSourceSha256.Equals(document.SourceSha256, StringComparison.OrdinalIgnoreCase) &&
+                    item.SclIedName.Equals(workspace.IedName, StringComparison.OrdinalIgnoreCase) &&
+                    item.SclAccessPointName.Equals(workspace.AccessPointName, StringComparison.OrdinalIgnoreCase));
 
+                if (device != null && (device.IsConnected || device.IsBusy || device.IsMonitoring))
+                {
+                    retained++;
+                    firstImported ??= device;
+                    continue;
+                }
+
+                var signals = SclWorkspaceSignalMapper.BuildSignals(workspace);
                 if (device == null)
                 {
-                    device = new Iec61850MonitorDevice
-                    {
-                        Name = endpoint.IedName,
-                        IdentitySource = $"SCL • {sourceName}",
-                        LogicalDeviceSummary = BuildSclEndpointSummary(endpoint),
-                        IpAddress = endpoint.IpAddress,
-                        Port = endpoint.Port,
-                        AllowDynamicDataSetWrites = true,
-                        Status = "SCL endpoint ready",
-                        Detail = $"Imported from {sourceName}. Press Play to connect and verify the live IEC 61850 model.",
-                        AcquisitionMode = "SCL • live discovery pending"
-                    };
+                    device = new Iec61850MonitorDevice();
                     Devices.Add(device);
                     added++;
                 }
-                else if (!device.IsConnected && !device.IsBusy && !device.HasDiscoveryCache)
-                {
-                    if (string.IsNullOrWhiteSpace(device.Name) ||
-                        device.Name.Equals(device.IpAddress, StringComparison.OrdinalIgnoreCase))
-                    {
-                        device.Name = endpoint.IedName;
-                    }
-                    device.IdentitySource = $"SCL • {sourceName}";
-                    device.LogicalDeviceSummary = BuildSclEndpointSummary(endpoint);
-                    device.Status = "SCL endpoint ready";
-                    device.Detail = $"Endpoint refreshed from {sourceName}. Press Play to connect and verify the live IEC 61850 model.";
-                    device.AcquisitionMode = "SCL • live discovery pending";
-                    device.RefreshComputed();
-                    refreshed++;
-                }
                 else
                 {
-                    // Preserve active sessions and successful discovery caches. SCL is an
-                    // endpoint-import path, never authority over a verified live model.
-                    retained++;
+                    refreshed++;
                 }
 
+                ApplySclWorkspaceToDevice(device, document, workspace, signals);
                 firstImported ??= device;
             }
 
@@ -244,39 +218,130 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             UpdateNavigationVisuals(0, animate: true);
             RaiseWorkspaceCounts();
 
-            var warningText = result.Warnings.Count == 0 ? string.Empty : $", {result.Warnings.Count} warning(s)";
-            var status = $"{sourceName}: {result.Endpoints.Count} SCL endpoint(s) read — {added} added, {refreshed} refreshed, {retained} existing retained{warningText}. Use Play or Connect All for live verification.";
+            var offlineCount = document.Ieds.Count(item => item.CanBrowseOffline);
+            var endpointCount = document.Ieds.Count(item => !item.RequiresEndpointBinding);
+            var status = $"{sourceName}: {document.Ieds.Count} IED/AP workspace(s), {offlineCount} offline model(s), {endpointCount} MMS endpoint(s) — {added} added, {refreshed} refreshed, {retained} active retained.";
             SetStatus(status);
             AddLog("INFO", "SCL", status);
         }
         catch (OperationCanceledException)
         {
-            SetStatus($"{sourceName}: SCL import cancelled.");
+            SetStatus($"{sourceName}: SCL open cancelled.");
         }
         catch (Exception ex)
         {
             AddLog("ERROR", "SCL", $"Could not open {sourceName}: {ex.Message}");
-            SetStatus($"{sourceName}: SCL import failed. Diagnostics is marked with !.");
+            SetStatus($"{sourceName}: SCL open failed. Diagnostics is marked with !.");
             MarkDiagnosticAlert();
             MessageBox.Show(
                 this,
-                $"ArIED could not read this SCL file.\n\n{ex.Message}",
+                $"ArIED could not open this SCL file through the ARIEC61850 engine.\n\n{ex.Message}",
                 "Open SCL",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
     }
 
-    private static string BuildSclEndpointSummary(SclIedEndpoint endpoint)
+    private void ApplySclWorkspaceToDevice(
+        Iec61850MonitorDevice device,
+        SclWorkspaceDocument document,
+        SclIedWorkspace workspace,
+        IReadOnlyList<SignalDefinition> signals)
     {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(endpoint.AccessPointName))
-            parts.Add($"AP {endpoint.AccessPointName}");
-        if (!string.IsNullOrWhiteSpace(endpoint.SubNetworkName))
-            parts.Add(endpoint.SubNetworkName);
-        return parts.Count == 0 ? "SCL endpoint" : string.Join(" • ", parts);
+        var previousSelection = device.Signals
+            .Where(signal => signal.IsSelected)
+            .Select(signal => NormalizeReference(signal.ObjectReference))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        DetachSignalHandlers(device.Signals);
+        device.Signals.Clear();
+        device.RecountSelectedSignals();
+
+        var endpoint = workspace.PreferredEndpoint;
+        device.Name = workspace.IedName;
+        device.IdentitySource = $"SCL design • {document.SourceName}";
+        device.LogicalDeviceSummary = BuildSclWorkspaceSummary(workspace);
+        if (endpoint?.HasUsableAddress == true)
+        {
+            device.IpAddress = endpoint.IpAddress;
+            device.Port = endpoint.Port;
+        }
+        else if (string.IsNullOrWhiteSpace(device.IpAddress) || device.IpAddress == "192.168.1.10")
+        {
+            device.IpAddress = string.Empty;
+            device.Port = 102;
+        }
+
+        device.AllowDynamicDataSetWrites = false;
+        device.SclWorkspace = workspace;
+        device.SclComparison = null;
+        device.SclSourcePath = document.SourcePath;
+        device.SclSourceSha256 = document.SourceSha256;
+        device.SclIedName = workspace.IedName;
+        device.SclAccessPointName = workspace.AccessPointName;
+        device.HasDiscoveryCache = signals.Count > 0;
+        device.Status = workspace.RequiresEndpointBinding ? "SCL model ready — bind endpoint" : "SCL model ready";
+        device.Detail = workspace.RequiresEndpointBinding
+            ? "LD/LN/DO/DA are available offline. Press Play to bind an MMS endpoint; no discovery traffic was sent while opening the file."
+            : "LD/LN/DO/DA were loaded offline. Play performs a fast MMS association; Re-scan performs full design-versus-live verification.";
+        device.AcquisitionMode = "SCL offline design model";
+
+        foreach (var signal in signals)
+        {
+            signal.IsSelected = previousSelection.Contains(NormalizeReference(signal.ObjectReference));
+            signal.PropertyChanged += Signal_PropertyChanged;
+            _signalOwners[signal] = device;
+        }
+        device.Signals.AddRange(signals);
+        device.RecountSelectedSignals();
+        device.RefreshComputed();
     }
 
+    private static string BuildSclWorkspaceSummary(SclIedWorkspace workspace)
+    {
+        var coverage = workspace.DesignModel.Coverage;
+        var ap = string.IsNullOrWhiteSpace(workspace.AccessPointName) ? "AP unassigned" : $"AP {workspace.AccessPointName}";
+        return $"{ap} • {coverage.LogicalDeviceCount} LD • {coverage.LogicalNodeCount} LN • {coverage.DataObjectCount} DO • {coverage.DataAttributeCount} DA";
+    }
+
+    private void LogSclFindings(string sourceName, IReadOnlyList<SclWorkspaceFinding> findings)
+    {
+        foreach (var finding in findings.Take(40))
+        {
+            var level = finding.Severity.Equals("High", StringComparison.OrdinalIgnoreCase) ||
+                        finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)
+                ? "ERROR"
+                : finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
+            AddLog(level, "SCL", $"{sourceName} • {finding.Code}: {finding.Message}");
+        }
+        if (findings.Count > 40)
+            AddLog("WARN", "SCL", $"{findings.Count - 40} additional finding(s) were omitted from the live log.");
+        if (findings.Any(finding => finding.Severity is "High" or "Error"))
+            MarkDiagnosticAlert();
+    }
+
+    private bool EnsureSclEndpointBinding(Iec61850MonitorDevice device)
+    {
+        if (!device.RequiresEndpointBinding)
+            return true;
+
+        var initialIp = string.IsNullOrWhiteSpace(NewDeviceIp) ? "192.168.1.10" : NewDeviceIp;
+        var wizard = new IpConnectWizardWindow(initialIp, device.Port <= 0 ? 102 : device.Port) { Owner = this };
+        if (wizard.ShowDialog() != true)
+        {
+            SetStatus($"{device.Name}: endpoint binding cancelled; the SCL model remains available offline.");
+            return false;
+        }
+
+        device.IpAddress = wizard.RelayIpAddress;
+        device.Port = wizard.MmsPort;
+        device.Status = "SCL model ready";
+        device.Detail = "Endpoint bound locally. Play will fast-connect from the SCL design model; Re-scan performs full comparison.";
+        device.RefreshComputed();
+        NewDeviceIp = device.IpAddress;
+        NewDevicePort = device.Port.ToString(CultureInfo.InvariantCulture);
+        return true;
+    }
 
     private async void ConnectAllIeds_Click(object sender, RoutedEventArgs e)
     {
@@ -326,6 +391,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (device.IsMonitoring)
                 return true;
+            if (device.RequiresEndpointBinding)
+            {
+                device.Status = "SCL model ready — endpoint required";
+                device.Detail = "Connect All skipped this offline SCL workspace because no MMS endpoint is bound.";
+                device.RefreshComputed();
+                AddLog("WARN", device.Name, "Connect All skipped the SCL workspace because its MMS endpoint is unassigned.");
+                return false;
+            }
 
             var connected = device.IsConnected;
             if (!connected)
@@ -448,6 +521,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         bool selectDevice = true)
     {
         if (device.IsBusy) return false;
+        if (!EnsureSclEndpointBinding(device)) return false;
 
         RememberCurrentSelectionForReconnect(device);
         RemoveDevicePoints(device.DeviceId);
@@ -482,6 +556,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             device.Signals.AddRange(signals);
             device.HasDiscoveryCache = signals.Count > 0;
+            ApplySclLiveComparison(device, signals);
 
             try
             {
@@ -576,6 +651,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         bool selectDevice = true)
     {
         if (device.IsBusy) return false;
+        if (!EnsureSclEndpointBinding(device)) return false;
         if (!device.HasDiscoveryCache || device.Signals.Count == 0)
             return await ConnectAndConfigureDeviceAsync(device, openWizard: true, selectDevice: selectDevice);
 
@@ -601,7 +677,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             device.RecountSelectedSignals();
             await WaitForDiscoveryProgressAnimationAsync(device, TimeSpan.FromMilliseconds(900));
             RaiseWorkspaceCounts();
-            SetStatus($"{device.Name}: fast connected from saved project model; full discovery skipped.");
+            if (device.HasSclDesignModel)
+            {
+                device.Status = "Connected — SCL design model";
+                device.Detail = "MMS association is live and the SCL workspace remains the active model. Re-scan performs a complete design-versus-live comparison.";
+                device.AcquisitionMode = "SCL design model • live association";
+                SetStatus($"{device.Name}: fast connected from the SCL design model; full discovery skipped. Use Re-scan to compare the complete live model.");
+            }
+            else
+            {
+                SetStatus($"{device.Name}: fast connected from saved project model; full discovery skipped.");
+            }
             return true;
         }
         catch (OperationCanceledException)
@@ -642,6 +728,47 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             device.IsBusy = false;
             device.RefreshComputed();
         }
+    }
+
+    private void ApplySclLiveComparison(Iec61850MonitorDevice device, IReadOnlyList<SignalDefinition> liveSignals)
+    {
+        if (device.SclWorkspace == null)
+            return;
+
+        var expectedModel = SclLiveSignalModelProjection.Build(
+            device.SclWorkspace.IedName,
+            device.SclWorkspace.AccessPointName,
+            SclWorkspaceSignalMapper.BuildSignals(device.SclWorkspace));
+        var observedModel = SclLiveSignalModelProjection.Build(
+            device.Name,
+            device.SclWorkspace.AccessPointName,
+            liveSignals);
+        var comparison = SclLiveModelComparer.Compare(expectedModel, observedModel);
+        device.SclComparison = comparison;
+        foreach (var finding in comparison.Findings.Take(30))
+        {
+            var level = finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase) ? "ERROR" : "INFO";
+            AddLog(level, "SCL Compare", $"{finding.Kind} • {finding.Message}");
+        }
+        if (comparison.Findings.Count > 30)
+            AddLog("WARN", "SCL Compare", $"{comparison.Findings.Count - 30} additional comparison finding(s) were omitted from the live log.");
+
+        if (comparison.IsCompatible)
+        {
+            device.IdentitySource = $"SCL + live verified • {Path.GetFileName(device.SclSourcePath)}";
+            device.AcquisitionMode = "SCL design • live model verified";
+            device.Detail = $"SCL and live MMS structures are compatible: {comparison.MatchedAttributeCount}/{comparison.ExpectedAttributeCount} expected attributes matched.";
+            AddLog("INFO", device.Name, device.Detail);
+        }
+        else
+        {
+            device.IdentitySource = $"SCL drift detected • {Path.GetFileName(device.SclSourcePath)}";
+            device.AcquisitionMode = "Live discovery • SCL configuration drift";
+            device.Detail = $"Live discovery found {comparison.BlockingFindingCount} blocking SCL mismatch(es). Live data is shown; review Diagnostics before testing control or reporting.";
+            MarkDiagnosticAlert();
+            AddLog("ERROR", device.Name, device.Detail);
+        }
+        device.RefreshComputed();
     }
 
     private async Task<bool> OpenSignalSelectionWizardAsync(
@@ -1102,11 +1229,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
 
         SelectedDevice = device;
+        if (!EnsureSclEndpointBinding(device))
+            return;
         RememberCurrentSelectionForReconnect(device);
         if (device.IsConnected)
             await StopDeviceConnectionAsync(device);
 
-        SetStatus($"{device.Name}: running a forced full live-model discovery. The saved cache will be replaced only after success.");
+        SetStatus(device.HasSclDesignModel
+            ? $"{device.Name}: discovering the complete live model and comparing it with the SCL design model."
+            : $"{device.Name}: running a forced full live-model discovery. The saved cache will be replaced only after success.");
         await ConnectAndConfigureDeviceAsync(device, openWizard: false);
     }
 
@@ -1395,6 +1526,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 Port = device.Port,
                 AllowDynamicDataSetWrites = device.AllowDynamicDataSetWrites,
                 DiscoverySucceeded = device.HasDiscoveryCache && device.Signals.Count > 0,
+                SclSourcePath = device.SclSourcePath,
+                SclSourceSha256 = device.SclSourceSha256,
+                SclIedName = device.SclIedName,
+                SclAccessPointName = device.SclAccessPointName,
                 SelectedReferences = device.Signals
                     .Where(signal => signal.IsSelected)
                     .Select(signal => NormalizeReference(signal.ObjectReference))
@@ -1459,6 +1594,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             foreach (var profile in project.Devices ?? new List<Iec61850TesterDeviceProfile>())
             {
+                var restoredSclWorkspace = await TryRestoreSclWorkspaceAsync(profile);
                 var cachedSignals = (profile.CachedSignals ?? new List<Iec61850CachedSignalProfile>())
                     .Where(item => !string.IsNullOrWhiteSpace(item.ObjectReference))
                     .Select(item => item.ToSignal())
@@ -1466,11 +1602,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     .GroupBy(item => NormalizeReference(item.ObjectReference), StringComparer.OrdinalIgnoreCase)
                     .Select(group => group.First())
                     .ToList();
+                if (restoredSclWorkspace != null)
+                    cachedSignals = SclWorkspaceSignalMapper.BuildSignals(restoredSclWorkspace).ToList();
                 var selectedReferences = (profile.SelectedReferences ?? new List<string>())
                     .Select(NormalizeReference)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                var hasSavedModel = profile.DiscoverySucceeded && cachedSignals.Count > 0;
+                var hasSclProvenance = restoredSclWorkspace != null || !string.IsNullOrWhiteSpace(profile.SclSourceSha256);
+                var hasSavedModel = (profile.DiscoverySucceeded || hasSclProvenance) && cachedSignals.Count > 0;
                 var device = new Iec61850MonitorDevice
                 {
                     DeviceId = string.IsNullOrWhiteSpace(profile.DeviceId) ? Guid.NewGuid().ToString("N") : profile.DeviceId,
@@ -1479,13 +1618,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     LogicalDeviceSummary = profile.LogicalDeviceSummary,
                     IpAddress = profile.IpAddress,
                     Port = profile.Port <= 0 ? 102 : profile.Port,
-                    AllowDynamicDataSetWrites = profile.AllowDynamicDataSetWrites,
+                    AllowDynamicDataSetWrites = hasSclProvenance ? false : profile.AllowDynamicDataSetWrites,
+                    SclWorkspace = restoredSclWorkspace,
+                    SclSourcePath = profile.SclSourcePath,
+                    SclSourceSha256 = profile.SclSourceSha256,
+                    SclIedName = profile.SclIedName,
+                    SclAccessPointName = profile.SclAccessPointName,
                     HasDiscoveryCache = hasSavedModel,
-                    Status = hasSavedModel ? "Saved model ready" : "Discovery required",
-                    Detail = hasSavedModel
-                        ? "Press Play for fast connect and live values. Full signal discovery is skipped unless Re-scan is selected."
-                        : "This IED has no successful saved discovery. Press Play to scan the live model.",
-                    AcquisitionMode = hasSavedModel ? "Saved model • fast connect" : "Not connected • scan required"
+                    Status = hasSclProvenance
+                        ? string.IsNullOrWhiteSpace(profile.IpAddress) ? "SCL model ready — bind endpoint" : "SCL model ready"
+                        : hasSavedModel ? "Saved model ready" : "Discovery required",
+                    Detail = hasSclProvenance
+                        ? "SCL design model restored from project provenance. Play fast-connects; Re-scan compares the full live model."
+                        : hasSavedModel
+                            ? "Press Play for fast connect and live values. Full signal discovery is skipped unless Re-scan is selected."
+                            : "This IED has no successful saved discovery. Press Play to scan the live model.",
+                    AcquisitionMode = hasSclProvenance
+                        ? "SCL project model • offline"
+                        : hasSavedModel ? "Saved model • fast connect" : "Not connected • scan required"
                 };
                 Devices.Add(device);
 
@@ -1509,12 +1659,51 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             SelectedDevice = Devices.FirstOrDefault();
             RaiseWorkspaceCounts();
             var cachedCount = Devices.Count(device => device.HasDiscoveryCache);
-            SetStatus($"Project loaded: {Devices.Count} IED profile(s), {cachedCount} saved discovery model(s) ready for fast Play connect without a full scan.");
+            var sclCount = Devices.Count(device => device.HasSclDesignModel);
+            SetStatus($"Project loaded: {Devices.Count} IED profile(s), {cachedCount} cached model(s), {sclCount} SCL design model(s) ready for offline browsing and fast Play connect.");
         }
         catch (Exception ex)
         {
             AddLog("ERROR", "Project", ex.Message);
             SetStatus("Project load failed. Diagnostics is marked with !.");
+        }
+    }
+
+    private async Task<SclIedWorkspace?> TryRestoreSclWorkspaceAsync(Iec61850TesterDeviceProfile profile)
+    {
+        if (string.IsNullOrWhiteSpace(profile.SclSourcePath) || string.IsNullOrWhiteSpace(profile.SclSourceSha256))
+            return null;
+        if (!File.Exists(profile.SclSourcePath))
+        {
+            AddLog("WARN", "SCL", $"Saved SCL source is unavailable: {profile.SclSourcePath}. The cached signal model remains usable.");
+            return null;
+        }
+
+        try
+        {
+            var document = await _sclWorkspaceService.OpenAsync(
+                profile.SclSourcePath,
+                new SclWorkspaceOpenOptions
+                {
+                    IedName = profile.SclIedName,
+                    AccessPointName = profile.SclAccessPointName
+                },
+                _applicationCancellation.Token);
+            if (!document.SourceSha256.Equals(profile.SclSourceSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                AddLog("ERROR", "SCL", $"Saved SCL source changed on disk: {profile.SclSourcePath}. Cached signals were retained and the changed file was not trusted automatically.");
+                MarkDiagnosticAlert();
+                return null;
+            }
+
+            return document.Ieds.FirstOrDefault(item =>
+                (string.IsNullOrWhiteSpace(profile.SclIedName) || item.IedName.Equals(profile.SclIedName, StringComparison.OrdinalIgnoreCase)) &&
+                (string.IsNullOrWhiteSpace(profile.SclAccessPointName) || item.AccessPointName.Equals(profile.SclAccessPointName, StringComparison.OrdinalIgnoreCase)));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AddLog("WARN", "SCL", $"Could not restore {profile.SclSourcePath}: {ex.Message}. Cached signals were retained.");
+            return null;
         }
     }
 
