@@ -1,0 +1,46 @@
+name: Apply P0 control confirmation fix
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.ref == 'fix/atomic-control-confirmation' && !contains(github.event.pull_request.head.sha, '[applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout P0 branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/atomic-control-confirmation
+          fetch-depth: 0
+
+      - name: Apply reviewed source patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          for patch in \
+            .p0/Models__SignalDefinition.cs.patch \
+            .p0/MainWindow.xaml.cs.patch \
+            .p0/MainWindow.CommandPanelUx.cs.patch \
+            .p0/MainWindow.ControlDiagnostics.cs.patch \
+            .p0/MainWindow.xaml.patch \
+            .p0/App.xaml.patch
+          do
+            git apply --check "$patch"
+            git apply "$patch"
+          done
+          rm -rf .p0
+
+      - name: Commit atomic confirmation implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make control confirmation atomic [applied]"
+          git push origin HEAD:fix/atomic-control-confirmation
