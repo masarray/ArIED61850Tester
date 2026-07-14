@@ -19,7 +19,6 @@ jobs:
           fetch-depth: 0
 
       - name: Apply and validate reviewed transformations
-        id: transform
         shell: bash
         run: |
           set -euo pipefail
@@ -35,35 +34,12 @@ jobs:
           test -s Assets/app-icon.ico
 
       - name: Commit repaired source
-        id: commit
-        continue-on-error: true
         shell: bash
         run: |
-          set -u
-          set +e
-          {
-            set -x
-            git status --short
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj .github/workflows/build.yml scripts/publish-windows-portable.ps1 Assets/app-icon.ico docs/SCL_SMART_DYNAMIC_REPORTING.md
-            git status --short
-            git commit -m "fix: repair SCL-first workflow and compact application layout"
-            git push origin HEAD:fix/scl-workflow-layout-repair
-          } > .repair/commit-error.txt 2>&1
-          status=$?
-          set -e
-          exit "$status"
-
-      - name: Upload commit failure evidence
-        if: steps.commit.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: scl-workflow-repair-commit-error
-          path: .repair/commit-error.txt
-          if-no-files-found: error
-
-      - name: Stop after commit failure
-        if: steps.commit.outcome == 'failure'
-        shell: bash
-        run: exit 1
+          set -euo pipefail
+          git checkout -- .github/workflows/build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj scripts/publish-windows-portable.ps1 Assets/app-icon.ico docs/SCL_SMART_DYNAMIC_REPORTING.md
+          git commit -m "fix: repair SCL-first workflow and compact application layout"
+          git push origin HEAD:fix/scl-workflow-layout-repair
