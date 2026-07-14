@@ -23,7 +23,20 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile .repair/apply.py
-          python3 .repair/apply.py
+          rm -f .repair/apply-error.txt
+          set +e
+          python3 .repair/apply.py > .repair/apply-error.txt 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
+            git add .repair/apply-error.txt
+            git commit -m "debug: capture repair transformation mismatch"
+            git push origin HEAD:fix/scl-workflow-layout-repair
+            exit "$status"
+          fi
+
           base64 --decode .repair/app-icon.b64 > Assets/app-icon.ico
 
           grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
