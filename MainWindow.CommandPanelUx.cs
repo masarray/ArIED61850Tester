@@ -253,7 +253,7 @@ public partial class MainWindow
             {
                 // One MMS association is serialized. Do not queue background ctlModel
                 // inspection while an operator command owns the session.
-                if (device.CommandSignals.Any(signal => signal.ControlIsBusy))
+                if (device.CommandSignals.Any(signal => signal.ControlCommandBusy))
                     continue;
 
                 var candidates = device.Signals
@@ -272,7 +272,7 @@ public partial class MainWindow
                 await Task.WhenAll(candidates.Select(async signal =>
                 {
                     await throttle.WaitAsync(_applicationCancellation.Token);
-                    signal.ControlIsBusy = true;
+                    signal.ControlInspectionBusy = true;
                     try
                     {
                         var capabilities = await _runtime.InspectControlAsync(
@@ -280,10 +280,13 @@ public partial class MainWindow
                             signal,
                             _applicationCancellation.Token);
 
-                        signal.ControlCurrentValue = capabilities.CurrentValue;
-                        signal.ControlLastResult = capabilities.SupportsOperate
-                            ? string.Empty
-                            : "Not available";
+                        if (!signal.ControlCommandBusy)
+                        {
+                            signal.ControlCurrentValue = capabilities.CurrentValue;
+                            signal.ControlLastResult = capabilities.SupportsOperate
+                                ? string.Empty
+                                : "Not available";
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -297,7 +300,7 @@ public partial class MainWindow
                     }
                     finally
                     {
-                        signal.ControlIsBusy = false;
+                        signal.ControlInspectionBusy = false;
                         throttle.Release();
                     }
                 }));

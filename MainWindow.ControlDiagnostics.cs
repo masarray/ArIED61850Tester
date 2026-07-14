@@ -379,7 +379,7 @@ public partial class MainWindow
             {
                 state.StableConfirmed = true;
                 SetStableFeedbackResult(state);
-                if (!state.Signal.ControlIsBusy)
+                if (!state.Signal.ControlCommandBusy)
                     RemovePositionCommand(state.Key);
                 return;
             }
@@ -413,8 +413,8 @@ public partial class MainWindow
             return;
         }
 
-        if (propertyName == nameof(SignalDefinition.ControlIsBusy) &&
-            !state.Signal.ControlIsBusy && state.StableConfirmed)
+        if (propertyName == nameof(SignalDefinition.ControlCommandBusy) &&
+            !state.Signal.ControlCommandBusy && state.StableConfirmed)
         {
             SetStableFeedbackResult(state);
             RemovePositionCommand(state.Key);
