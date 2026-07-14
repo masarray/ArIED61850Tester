@@ -45,9 +45,6 @@ jobs:
             exit "$status"
           fi
 
-          rm -rf .repair
-          rm -f .github/workflows/apply-scl-workflow-layout-repair.yml
-
       - name: Upload repair failure evidence
         if: steps.transform.outcome == 'failure'
         uses: actions/upload-artifact@v4
@@ -68,6 +65,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj .github/workflows/build.yml scripts/publish-windows-portable.ps1 Assets/app-icon.ico docs/SCL_SMART_DYNAMIC_REPORTING.md
           git commit -m "fix: repair SCL-first workflow and compact application layout"
           git push origin HEAD:fix/scl-workflow-layout-repair
