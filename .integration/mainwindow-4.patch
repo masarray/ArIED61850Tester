@@ -1,0 +1,102 @@
+--- a/MainWindow.xaml.cs
++++ b/MainWindow.xaml.cs
+@@ -1466,11 +1602,14 @@
+                     .GroupBy(item => NormalizeReference(item.ObjectReference), StringComparer.OrdinalIgnoreCase)
+                     .Select(group => group.First())
+                     .ToList();
++                if (restoredSclWorkspace != null)
++                    cachedSignals = SclWorkspaceSignalMapper.BuildSignals(restoredSclWorkspace).ToList();
+                 var selectedReferences = (profile.SelectedReferences ?? new List<string>())
+                     .Select(NormalizeReference)
+                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
+ 
+-                var hasSavedModel = profile.DiscoverySucceeded && cachedSignals.Count > 0;
++                var hasSclProvenance = restoredSclWorkspace != null || !string.IsNullOrWhiteSpace(profile.SclSourceSha256);
++                var hasSavedModel = (profile.DiscoverySucceeded || hasSclProvenance) && cachedSignals.Count > 0;
+                 var device = new Iec61850MonitorDevice
+                 {
+                     DeviceId = string.IsNullOrWhiteSpace(profile.DeviceId) ? Guid.NewGuid().ToString("N") : profile.DeviceId,
+@@ -1479,13 +1618,24 @@
+                     LogicalDeviceSummary = profile.LogicalDeviceSummary,
+                     IpAddress = profile.IpAddress,
+                     Port = profile.Port <= 0 ? 102 : profile.Port,
+-                    AllowDynamicDataSetWrites = profile.AllowDynamicDataSetWrites,
++                    AllowDynamicDataSetWrites = hasSclProvenance ? false : profile.AllowDynamicDataSetWrites,
++                    SclWorkspace = restoredSclWorkspace,
++                    SclSourcePath = profile.SclSourcePath,
++                    SclSourceSha256 = profile.SclSourceSha256,
++                    SclIedName = profile.SclIedName,
++                    SclAccessPointName = profile.SclAccessPointName,
+                     HasDiscoveryCache = hasSavedModel,
+-                    Status = hasSavedModel ? "Saved model ready" : "Discovery required",
+-                    Detail = hasSavedModel
+-                        ? "Press Play for fast connect and live values. Full signal discovery is skipped unless Re-scan is selected."
+-                        : "This IED has no successful saved discovery. Press Play to scan the live model.",
+-                    AcquisitionMode = hasSavedModel ? "Saved model • fast connect" : "Not connected • scan required"
++                    Status = hasSclProvenance
++                        ? string.IsNullOrWhiteSpace(profile.IpAddress) ? "SCL model ready — bind endpoint" : "SCL model ready"
++                        : hasSavedModel ? "Saved model ready" : "Discovery required",
++                    Detail = hasSclProvenance
++                        ? "SCL design model restored from project provenance. Play fast-connects; Re-scan compares the full live model."
++                        : hasSavedModel
++                            ? "Press Play for fast connect and live values. Full signal discovery is skipped unless Re-scan is selected."
++                            : "This IED has no successful saved discovery. Press Play to scan the live model.",
++                    AcquisitionMode = hasSclProvenance
++                        ? "SCL project model • offline"
++                        : hasSavedModel ? "Saved model • fast connect" : "Not connected • scan required"
+                 };
+                 Devices.Add(device);
+ 
+@@ -1509,12 +1659,51 @@
+             SelectedDevice = Devices.FirstOrDefault();
+             RaiseWorkspaceCounts();
+             var cachedCount = Devices.Count(device => device.HasDiscoveryCache);
+-            SetStatus($"Project loaded: {Devices.Count} IED profile(s), {cachedCount} saved discovery model(s) ready for fast Play connect without a full scan.");
++            var sclCount = Devices.Count(device => device.HasSclDesignModel);
++            SetStatus($"Project loaded: {Devices.Count} IED profile(s), {cachedCount} cached model(s), {sclCount} SCL design model(s) ready for offline browsing and fast Play connect.");
+         }
+         catch (Exception ex)
+         {
+             AddLog("ERROR", "Project", ex.Message);
+             SetStatus("Project load failed. Diagnostics is marked with !.");
++        }
++    }
++
++    private async Task<SclIedWorkspace?> TryRestoreSclWorkspaceAsync(Iec61850TesterDeviceProfile profile)
++    {
++        if (string.IsNullOrWhiteSpace(profile.SclSourcePath) || string.IsNullOrWhiteSpace(profile.SclSourceSha256))
++            return null;
++        if (!File.Exists(profile.SclSourcePath))
++        {
++            AddLog("WARN", "SCL", $"Saved SCL source is unavailable: {profile.SclSourcePath}. The cached signal model remains usable.");
++            return null;
++        }
++
++        try
++        {
++            var document = await _sclWorkspaceService.OpenAsync(
++                profile.SclSourcePath,
++                new SclWorkspaceOpenOptions
++                {
++                    IedName = profile.SclIedName,
++                    AccessPointName = profile.SclAccessPointName
++                },
++                _applicationCancellation.Token);
++            if (!document.SourceSha256.Equals(profile.SclSourceSha256, StringComparison.OrdinalIgnoreCase))
++            {
++                AddLog("ERROR", "SCL", $"Saved SCL source changed on disk: {profile.SclSourcePath}. Cached signals were retained and the changed file was not trusted automatically.");
++                MarkDiagnosticAlert();
++                return null;
++            }
++
++            return document.Ieds.FirstOrDefault(item =>
++                (string.IsNullOrWhiteSpace(profile.SclIedName) || item.IedName.Equals(profile.SclIedName, StringComparison.OrdinalIgnoreCase)) &&
++                (string.IsNullOrWhiteSpace(profile.SclAccessPointName) || item.AccessPointName.Equals(profile.SclAccessPointName, StringComparison.OrdinalIgnoreCase)));
++        }
++        catch (Exception ex) when (ex is not OperationCanceledException)
++        {
++            AddLog("WARN", "SCL", $"Could not restore {profile.SclSourcePath}: {ex.Message}. Cached signals were retained.");
++            return null;
+         }
+     }
+ 
