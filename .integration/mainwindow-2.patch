@@ -1,0 +1,148 @@
+--- a/MainWindow.xaml.cs
++++ b/MainWindow.xaml.cs
+@@ -244,39 +218,130 @@
+             UpdateNavigationVisuals(0, animate: true);
+             RaiseWorkspaceCounts();
+ 
+-            var warningText = result.Warnings.Count == 0 ? string.Empty : $", {result.Warnings.Count} warning(s)";
+-            var status = $"{sourceName}: {result.Endpoints.Count} SCL endpoint(s) read — {added} added, {refreshed} refreshed, {retained} existing retained{warningText}. Use Play or Connect All for live verification.";
++            var offlineCount = document.Ieds.Count(item => item.CanBrowseOffline);
++            var endpointCount = document.Ieds.Count(item => !item.RequiresEndpointBinding);
++            var status = $"{sourceName}: {document.Ieds.Count} IED/AP workspace(s), {offlineCount} offline model(s), {endpointCount} MMS endpoint(s) — {added} added, {refreshed} refreshed, {retained} active retained.";
+             SetStatus(status);
+             AddLog("INFO", "SCL", status);
+         }
+         catch (OperationCanceledException)
+         {
+-            SetStatus($"{sourceName}: SCL import cancelled.");
++            SetStatus($"{sourceName}: SCL open cancelled.");
+         }
+         catch (Exception ex)
+         {
+             AddLog("ERROR", "SCL", $"Could not open {sourceName}: {ex.Message}");
+-            SetStatus($"{sourceName}: SCL import failed. Diagnostics is marked with !.");
++            SetStatus($"{sourceName}: SCL open failed. Diagnostics is marked with !.");
+             MarkDiagnosticAlert();
+             MessageBox.Show(
+                 this,
+-                $"ArIED could not read this SCL file.\n\n{ex.Message}",
++                $"ArIED could not open this SCL file through the ARIEC61850 engine.\n\n{ex.Message}",
+                 "Open SCL",
+                 MessageBoxButton.OK,
+                 MessageBoxImage.Error);
+         }
+     }
+ 
+-    private static string BuildSclEndpointSummary(SclIedEndpoint endpoint)
+-    {
+-        var parts = new List<string>();
+-        if (!string.IsNullOrWhiteSpace(endpoint.AccessPointName))
+-            parts.Add($"AP {endpoint.AccessPointName}");
+-        if (!string.IsNullOrWhiteSpace(endpoint.SubNetworkName))
+-            parts.Add(endpoint.SubNetworkName);
+-        return parts.Count == 0 ? "SCL endpoint" : string.Join(" • ", parts);
+-    }
+-
++    private void ApplySclWorkspaceToDevice(
++        Iec61850MonitorDevice device,
++        SclWorkspaceDocument document,
++        SclIedWorkspace workspace,
++        IReadOnlyList<SignalDefinition> signals)
++    {
++        var previousSelection = device.Signals
++            .Where(signal => signal.IsSelected)
++            .Select(signal => NormalizeReference(signal.ObjectReference))
++            .ToHashSet(StringComparer.OrdinalIgnoreCase);
++
++        DetachSignalHandlers(device.Signals);
++        device.Signals.Clear();
++        device.RecountSelectedSignals();
++
++        var endpoint = workspace.PreferredEndpoint;
++        device.Name = workspace.IedName;
++        device.IdentitySource = $"SCL design • {document.SourceName}";
++        device.LogicalDeviceSummary = BuildSclWorkspaceSummary(workspace);
++        if (endpoint?.HasUsableAddress == true)
++        {
++            device.IpAddress = endpoint.IpAddress;
++            device.Port = endpoint.Port;
++        }
++        else if (string.IsNullOrWhiteSpace(device.IpAddress) || device.IpAddress == "192.168.1.10")
++        {
++            device.IpAddress = string.Empty;
++            device.Port = 102;
++        }
++
++        device.AllowDynamicDataSetWrites = false;
++        device.SclWorkspace = workspace;
++        device.SclComparison = null;
++        device.SclSourcePath = document.SourcePath;
++        device.SclSourceSha256 = document.SourceSha256;
++        device.SclIedName = workspace.IedName;
++        device.SclAccessPointName = workspace.AccessPointName;
++        device.HasDiscoveryCache = signals.Count > 0;
++        device.Status = workspace.RequiresEndpointBinding ? "SCL model ready — bind endpoint" : "SCL model ready";
++        device.Detail = workspace.RequiresEndpointBinding
++            ? "LD/LN/DO/DA are available offline. Press Play to bind an MMS endpoint; no discovery traffic was sent while opening the file."
++            : "LD/LN/DO/DA were loaded offline. Play performs a fast MMS association; Re-scan performs full design-versus-live verification.";
++        device.AcquisitionMode = "SCL offline design model";
++
++        foreach (var signal in signals)
++        {
++            signal.IsSelected = previousSelection.Contains(NormalizeReference(signal.ObjectReference));
++            signal.PropertyChanged += Signal_PropertyChanged;
++            _signalOwners[signal] = device;
++        }
++        device.Signals.AddRange(signals);
++        device.RecountSelectedSignals();
++        device.RefreshComputed();
++    }
++
++    private static string BuildSclWorkspaceSummary(SclIedWorkspace workspace)
++    {
++        var coverage = workspace.DesignModel.Coverage;
++        var ap = string.IsNullOrWhiteSpace(workspace.AccessPointName) ? "AP unassigned" : $"AP {workspace.AccessPointName}";
++        return $"{ap} • {coverage.LogicalDeviceCount} LD • {coverage.LogicalNodeCount} LN • {coverage.DataObjectCount} DO • {coverage.DataAttributeCount} DA";
++    }
++
++    private void LogSclFindings(string sourceName, IReadOnlyList<SclWorkspaceFinding> findings)
++    {
++        foreach (var finding in findings.Take(40))
++        {
++            var level = finding.Severity.Equals("High", StringComparison.OrdinalIgnoreCase) ||
++                        finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)
++                ? "ERROR"
++                : finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
++            AddLog(level, "SCL", $"{sourceName} • {finding.Code}: {finding.Message}");
++        }
++        if (findings.Count > 40)
++            AddLog("WARN", "SCL", $"{findings.Count - 40} additional finding(s) were omitted from the live log.");
++        if (findings.Any(finding => finding.Severity is "High" or "Error"))
++            MarkDiagnosticAlert();
++    }
++
++    private bool EnsureSclEndpointBinding(Iec61850MonitorDevice device)
++    {
++        if (!device.RequiresEndpointBinding)
++            return true;
++
++        var initialIp = string.IsNullOrWhiteSpace(NewDeviceIp) ? "192.168.1.10" : NewDeviceIp;
++        var wizard = new IpConnectWizardWindow(initialIp, device.Port <= 0 ? 102 : device.Port) { Owner = this };
++        if (wizard.ShowDialog() != true)
++        {
++            SetStatus($"{device.Name}: endpoint binding cancelled; the SCL model remains available offline.");
++            return false;
++        }
++
++        device.IpAddress = wizard.RelayIpAddress;
++        device.Port = wizard.MmsPort;
++        device.Status = "SCL model ready";
++        device.Detail = "Endpoint bound locally. Play will fast-connect from the SCL design model; Re-scan performs full comparison.";
++        device.RefreshComputed();
++        NewDeviceIp = device.IpAddress;
++        NewDevicePort = device.Port.ToString(CultureInfo.InvariantCulture);
++        return true;
++    }
+ 
+     private async void ConnectAllIeds_Click(object sender, RoutedEventArgs e)
+     {
