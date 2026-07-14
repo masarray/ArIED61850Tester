@@ -1,3 +1,5 @@
+using AR.Iec61850.Scl.Workspace;
+
 namespace ArIED61850Tester.Models;
 
 public sealed class Iec61850MonitorDevice : ObservableObject
@@ -28,12 +30,75 @@ public sealed class Iec61850MonitorDevice : ObservableObject
     private bool _hasDiscoveryCache;
     private string _busyTitle = "Discovering IEC 61850 IED";
     private int _unreadEventCount;
+    private SclIedWorkspace? _sclWorkspace;
+    private SclLiveModelComparisonResult? _sclComparison;
+    private string _sclSourcePath = string.Empty;
+    private string _sclSourceSha256 = string.Empty;
+    private string _sclIedName = string.Empty;
+    private string _sclAccessPointName = string.Empty;
 
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
     public BulkObservableCollection<SignalDefinition> Signals { get; } = new();
     public BulkObservableCollection<Iec61850MonitorPoint> Points { get; } = new();
     public BulkObservableCollection<SignalDefinition> CommandSignals { get; } = new();
     public Iec61850DeviceDiagnosticSnapshot LastDiagnosticSnapshot { get; set; } = new();
+
+    public SclIedWorkspace? SclWorkspace
+    {
+        get => _sclWorkspace;
+        set
+        {
+            if (ReferenceEquals(_sclWorkspace, value)) return;
+            _sclWorkspace = value;
+            RefreshComputed();
+        }
+    }
+
+    public SclLiveModelComparisonResult? SclComparison
+    {
+        get => _sclComparison;
+        set
+        {
+            if (ReferenceEquals(_sclComparison, value)) return;
+            _sclComparison = value;
+            RefreshComputed();
+        }
+    }
+
+    public string SclSourcePath
+    {
+        get => _sclSourcePath;
+        set => Set(ref _sclSourcePath, value?.Trim() ?? string.Empty);
+    }
+
+    public string SclSourceSha256
+    {
+        get => _sclSourceSha256;
+        set => Set(ref _sclSourceSha256, value?.Trim() ?? string.Empty);
+    }
+
+    public string SclIedName
+    {
+        get => _sclIedName;
+        set => Set(ref _sclIedName, value?.Trim() ?? string.Empty);
+    }
+
+    public string SclAccessPointName
+    {
+        get => _sclAccessPointName;
+        set => Set(ref _sclAccessPointName, value?.Trim() ?? string.Empty);
+    }
+
+    public bool HasSclDesignModel => SclWorkspace != null || !string.IsNullOrWhiteSpace(SclSourceSha256);
+    public bool RequiresEndpointBinding => HasSclDesignModel && string.IsNullOrWhiteSpace(IpAddress);
+    public bool HasSclConfigurationDrift => SclComparison?.RequiresFullDiscovery == true;
+    public string SclVerificationText => !HasSclDesignModel
+        ? string.Empty
+        : SclComparison == null
+            ? IsConnected ? "SCL associated • full model unverified" : "SCL offline model"
+            : SclComparison.IsCompatible
+                ? "SCL verified against live model"
+                : $"SCL drift • {SclComparison.BlockingFindingCount} blocking finding(s)";
 
     // Smart Auto reporting: existing static RCB/DataSet first, temporary association-
     // scoped dynamic DataSet/URCB second, MMS polling only when reporting cannot be armed.
@@ -320,28 +385,42 @@ public sealed class Iec61850MonitorDevice : ObservableObject
     public bool CanPlayAction => !IsBusy && (!IsConnected || (!IsMonitoring && SelectedLiveSignalCount > 0));
     public bool CanStopAction => !IsBusy && (IsConnected || IsMonitoring);
     public bool CanRescan => !IsBusy && !IsMonitoring;
-    public string CacheStateText => HasDiscoveryCache
-        ? $"Saved model ready • {SignalCount:N0} signals"
-        : "No saved model • discovery required";
-    public string ReadyWorkspaceTitle => HasDiscoveryCache ? "Saved IED model is ready" : "IED is ready";
-    public string ReadyWorkspaceMessage => HasDiscoveryCache && SelectedLiveSignalCount > 0
-        ? $"{SelectedLiveSignalCount:N0} saved live signal(s) are selected. Use Play or Connect All for immediate live values without a full discovery scan."
+    public string CacheStateText => HasSclDesignModel
+        ? $"SCL design model • {SignalCount:N0} signals"
         : HasDiscoveryCache
-            ? "The complete signal model is restored. Choose signals offline; Apply & Start Live connects and starts monitoring automatically."
-            : "Choose signals in the wizard; Apply & Start Live begins monitoring automatically.";
+            ? $"Saved live model • {SignalCount:N0} signals"
+            : "No cached model • discovery required";
+    public string ReadyWorkspaceTitle => HasSclDesignModel
+        ? RequiresEndpointBinding ? "SCL model ready — endpoint required" : "SCL design model is ready"
+        : HasDiscoveryCache ? "Saved IED model is ready" : "IED is ready";
+    public string ReadyWorkspaceMessage => HasSclDesignModel
+        ? RequiresEndpointBinding
+            ? "The LD/LN/DO/DA model is available offline. Press Play to bind an MMS endpoint before connecting."
+            : SelectedLiveSignalCount > 0
+                ? $"{SelectedLiveSignalCount:N0} SCL signal(s) are selected. Play performs a fast MMS association; Re-scan compares the complete live model."
+                : "Browse and choose signals offline. Play associates without repeating full discovery; Re-scan performs design-versus-live verification."
+        : HasDiscoveryCache && SelectedLiveSignalCount > 0
+            ? $"{SelectedLiveSignalCount:N0} saved live signal(s) are selected. Use Play or Connect All for immediate live values without a full discovery scan."
+            : HasDiscoveryCache
+                ? "The complete signal model is restored. Choose signals offline; Apply & Start Live connects and starts monitoring automatically."
+                : "Choose signals in the wizard; Apply & Start Live begins monitoring automatically.";
     public string ConnectionActionLabel => IsBusy ? "Working…" : IsConnected ? "Disconnect" : "Connect";
     public string MonitorActionLabel => IsBusy ? "Working…" : IsMonitoring ? "Stop Monitor" : "Start Monitor";
     public string ActivityText => IsBusy ? "Working…" : IsMonitoring ? "Monitoring" : Status;
     public string SummaryText => $"{SignalCount} scanned • {SelectedSignalCount} selected • {PointCount} live";
     public string IdentityText => string.IsNullOrWhiteSpace(LogicalDeviceSummary)
         ? EndpointText
-        : $"{EndpointText} • LD {LogicalDeviceSummary}";
+        : HasSclDesignModel
+            ? $"{EndpointText} • {LogicalDeviceSummary}"
+            : $"{EndpointText} • LD {LogicalDeviceSummary}";
     public string ConnectionGlyph => IsBusy ? "…" : IsConnected ? "⏻" : "↗";
     public string ConnectionToolTip => IsBusy
         ? "IED connection operation is running"
         : IsConnected
             ? $"Disconnect {Name}"
-            : $"Connect and discover {EndpointText}";
+            : HasSclDesignModel
+                ? $"Connect {Name} using the SCL design model"
+                : $"Connect and discover {EndpointText}";
     public string MonitorGlyph => IsBusy ? "…" : IsMonitoring ? "■" : "▶";
     public string MonitorToolTip => IsBusy
         ? "IED session operation is running"
@@ -354,9 +433,13 @@ public sealed class Iec61850MonitorDevice : ObservableObject
         ? $"Stop monitoring {Name} before changing its signal selection"
         : $"Open signal selection wizard for {Name}";
     public string PlayToolTip => !IsConnected
-        ? HasDiscoveryCache
-            ? $"Fast-connect {Name} from the saved model and start its selected live values"
-            : $"Connect and discover {EndpointText}"
+        ? RequiresEndpointBinding
+            ? $"Bind an MMS endpoint for {Name}, then fast-connect from the SCL design model"
+            : HasSclDesignModel
+                ? $"Fast-connect {Name} from the SCL design model; use Re-scan for full live comparison"
+                : HasDiscoveryCache
+                    ? $"Fast-connect {Name} from the saved model and start its selected live values"
+                    : $"Connect and discover {EndpointText}"
         : IsMonitoring
             ? $"{Name} is already monitoring"
             : SelectedLiveSignalCount == 0
@@ -436,6 +519,10 @@ public sealed class Iec61850MonitorDevice : ObservableObject
         Raise(nameof(CanStopAction));
         Raise(nameof(CanRescan));
         Raise(nameof(CacheStateText));
+        Raise(nameof(HasSclDesignModel));
+        Raise(nameof(RequiresEndpointBinding));
+        Raise(nameof(HasSclConfigurationDrift));
+        Raise(nameof(SclVerificationText));
         Raise(nameof(ReadyWorkspaceTitle));
         Raise(nameof(ReadyWorkspaceMessage));
         Raise(nameof(ConnectionActionLabel));
@@ -681,7 +768,7 @@ public sealed class Iec61850EventEntry
 
 public sealed class Iec61850TesterProject
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public string ProjectName { get; set; } = "ArIED 61850 Session";
     public int DefaultPollingIntervalMs { get; set; } = 1000;
     public List<Iec61850TesterDeviceProfile> Devices { get; set; } = new();
@@ -697,6 +784,10 @@ public sealed class Iec61850TesterDeviceProfile
     public int Port { get; set; } = 102;
     public bool AllowDynamicDataSetWrites { get; set; } = true;
     public bool DiscoverySucceeded { get; set; }
+    public string SclSourcePath { get; set; } = string.Empty;
+    public string SclSourceSha256 { get; set; } = string.Empty;
+    public string SclIedName { get; set; } = string.Empty;
+    public string SclAccessPointName { get; set; } = string.Empty;
     public List<string> SelectedReferences { get; set; } = new();
     public List<Iec61850CachedSignalProfile> CachedSignals { get; set; } = new();
 }
