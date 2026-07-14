@@ -991,7 +991,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             catch (Exception ex)
             {
-                signal.ControlLastResult = $"Status read failed: {ex.Message}";
+                if (!signal.ControlCommandBusy)
+                    signal.ControlLastResult = $"Status read failed: {ex.Message}";
             }
             finally
             {

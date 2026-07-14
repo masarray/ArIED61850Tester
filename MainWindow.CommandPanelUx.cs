@@ -296,7 +296,8 @@ public partial class MainWindow
                     {
                         // SignalDefinition parses ctlModel evidence from this message. In
                         // particular, ctlModel=StatusOnly resolves the row as read-only.
-                        signal.ControlLastResult = $"Control model unavailable: {ex.Message}";
+                        if (!signal.ControlCommandBusy)
+                            signal.ControlLastResult = $"Control model unavailable: {ex.Message}";
                     }
                     finally
                     {
