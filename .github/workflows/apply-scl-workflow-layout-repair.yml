@@ -18,7 +18,9 @@ jobs:
           ref: fix/scl-workflow-layout-repair
           fetch-depth: 0
 
-      - name: Apply reviewed source transformations
+      - name: Apply and validate reviewed transformations
+        id: transform
+        continue-on-error: true
         shell: bash
         run: |
           set -u
@@ -40,20 +42,27 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ]; then
-            git checkout -- MainWindow.xaml MainWindow.xaml.cs ArIED61850Tester.csproj .github/workflows/build.yml scripts/publish-windows-portable.ps1 2>/dev/null || true
-            rm -f docs/SCL_SMART_DYNAMIC_REPORTING.md Assets/app-icon.ico
-            git config user.name "github-actions[bot]"
-            git config user.email "4189826+github-actions[bot]@users.noreply.github.com"
-            git add .repair/apply-error.txt
-            git commit -m "debug: capture repair validation failure"
-            git push origin HEAD:fix/scl-workflow-layout-repair
             exit "$status"
           fi
 
           rm -rf .repair
           rm -f .github/workflows/apply-scl-workflow-layout-repair.yml
 
+      - name: Upload repair failure evidence
+        if: steps.transform.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scl-workflow-repair-error
+          path: .repair/apply-error.txt
+          if-no-files-found: error
+
+      - name: Stop after repair failure
+        if: steps.transform.outcome == 'failure'
+        shell: bash
+        run: exit 1
+
       - name: Commit repaired implementation
+        if: steps.transform.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
