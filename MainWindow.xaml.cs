@@ -306,17 +306,38 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void LogSclFindings(string sourceName, IReadOnlyList<SclWorkspaceFinding> findings)
     {
-        foreach (var finding in findings.Take(40))
+        if (findings.Count == 0)
+            return;
+
+        var groups = SclFindingAggregator.Group(findings);
+        if (groups.Count != findings.Count)
         {
-            var level = finding.Severity.Equals("High", StringComparison.OrdinalIgnoreCase) ||
-                        finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)
-                ? "ERROR"
-                : finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
-            AddLog(level, "SCL", $"{sourceName} • {finding.Code}: {finding.Message}");
+            AddLog(
+                "INFO",
+                "SCL",
+                $"{sourceName} • grouped {findings.Count} raw finding(s) into {groups.Count} diagnostic group(s). Full typed evidence remains attached to the SCL workspace.");
         }
-        if (findings.Count > 40)
-            AddLog("WARN", "SCL", $"{findings.Count - 40} additional finding(s) were omitted from the live log.");
-        if (findings.Any(finding => finding.Severity is "High" or "Error"))
+
+        foreach (var group in groups.Take(40))
+        {
+            AddLog(
+                SclFindingAggregator.ToLogLevel(group.Severity),
+                "SCL",
+                $"{sourceName} • {group.Code} [{group.Scope}]: {group.ToDiagnosticMessage()}");
+        }
+
+        if (groups.Count > 40)
+        {
+            var omittedRawCount = groups
+                .Skip(40)
+                .Sum(group => group.Count);
+            AddLog(
+                "WARN",
+                "SCL",
+                $"{groups.Count - 40} additional diagnostic group(s), representing {omittedRawCount} raw finding(s), were omitted from the live log.");
+        }
+
+        if (groups.Any(group => SclFindingAggregator.IsBlockingSeverity(group.Severity)))
             MarkDiagnosticAlert();
     }
 
