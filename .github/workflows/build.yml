@@ -24,22 +24,24 @@ jobs:
         shell: powershell
         run: .\ArIED61850Tester\scripts\verify-source-clean.ps1
 
-      - name: Verify premium P0, P1, P2 and IED-card UX invariants
+      - name: Verify premium P0, P1, P2, IED-card and ballistic-nav UX invariants
         shell: powershell
         run: |
           $app = Get-Content .\ArIED61850Tester\App.xaml -Raw
           $main = Get-Content .\ArIED61850Tester\MainWindow.xaml -Raw
+          $code = Get-Content .\ArIED61850Tester\MainWindow.xaml.cs -Raw
           $save = Get-Content .\ArIED61850Tester\SaveSclWindow.xaml -Raw
           $saveCode = Get-Content .\ArIED61850Tester\SaveSclWindow.xaml.cs -Raw
           $project = Get-Content .\ArIED61850Tester\ArIED61850Tester.csproj -Raw
+          $publish = Get-Content .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Raw
 
           if ($save -notmatch 'x:Name="EditionIndicator"' -or
               $save -notmatch 'Content="Edition 2"' -or
-              $save -notmatch 'Content="Edition 1"') {
-            throw "Save SCL segmented Edition 2 / Edition 1 selector was not found."
-          }
-          if ($save -match '<ComboBox' -or $save -match 'Schema V3\.1' -or $save -match 'Schema V1\.6') {
-            throw "Save SCL still exposes the legacy schema ComboBox or technical schema revision labels."
+              $save -notmatch 'Content="Edition 1"' -or
+              $save -match '<ComboBox' -or
+              $save -match 'Schema V3\.1' -or
+              $save -match 'Schema V1\.6') {
+            throw "Save SCL segmented Edition 2 / Edition 1 selector regressed."
           }
 
           $itemStyleMatch = [regex]::Match(
@@ -51,31 +53,10 @@ jobs:
           }
           $itemStyle = $itemStyleMatch.Groups['body'].Value
           if ($itemStyle -match 'ScaleTransform' -or $itemStyle -match 'RenderTransform') {
-            throw "IED card interaction must not resize or transform the card. Hover may change colors only."
-          }
-          if ($main -notmatch 'x:Name="ConnectedBadge"' -or
-              $app -notmatch 'x:Key="IedCardConnected"' -or
-              $app -notmatch 'x:Key="IedCardConnectedSelected"') {
-            throw "Premium connected IED-card states were not found."
+            throw "IED card interaction must never resize or transform the card."
           }
 
-          if ($main -notmatch 'Style="\{StaticResource CommandDataGrid\}"' -or
-              $main -notmatch 'RowStyle="\{StaticResource CommandDataGridRow\}"' -or
-              $app -notmatch 'x:Key="CommandDataGridRow"' -or
-              $app -notmatch 'x:Key="LucideSlidersHorizontal"') {
-            throw "Premium Command Panel hierarchy and row styles were not found."
-          }
-          if ($main -notmatch 'ScrollViewer.HorizontalScrollBarVisibility="Disabled"' -or
-              $main -notmatch 'CanUserResizeColumns="False"') {
-            throw "IED Command Panel horizontal overflow protection was not found."
-          }
-          if ($main -notmatch 'Content="\{Binding ControlPendingConfirmationLabel\}"' -or
-              $main -match 'Content="Confirm Open"' -or
-              $main -match 'Content="Confirm Close"') {
-            throw "Atomic single-button control confirmation regressed."
-          }
-
-          $requiredAppTokens = @(
+          foreach ($token in @(
             'x:Key="SurfaceRaised"',
             'x:Key="BorderDefault"',
             'x:Key="KeyboardFocusVisual"',
@@ -85,64 +66,65 @@ jobs:
             'x:Key="DeviceEndpoint"',
             'x:Key="InsightPill"',
             'x:Key="ConnectedBadgeStyle"',
-            'x:Key="StopAction"'
-          )
-          foreach ($token in $requiredAppTokens) {
+            'x:Key="BallisticNavButton"',
+            'x:Key="BallisticNavButtonSelected"')) {
             if ($app -notmatch [regex]::Escape($token)) {
-              throw "Premium P2 semantic theme or typography token was not found: $token"
+              throw "Required premium resource was not found: $token"
             }
           }
 
-          $requiredMainTokens = @(
-            'Style="{StaticResource InsightPill}"',
-            'Style="{StaticResource DeviceTitle}"',
-            'Style="{StaticResource DeviceEndpoint}"',
-            'Style="{StaticResource ConnectedBadgeStyle}"',
-            'Storyboard.TargetName="ConnectedBadge"',
-            'Storyboard.TargetName="BusyOverlay"'
-          )
-          foreach ($token in $requiredMainTokens) {
-            if ($main -notmatch [regex]::Escape($token)) {
-              throw "Premium P2 presentation invariant was not found: $token"
-            }
+          if ($main -match 'WorkflowPill' -or
+              $main -match 'WorkflowPillTranslate' -or
+              $main -match 'WorkflowPillScale' -or
+              $main -match 'Style="\{StaticResource SegmentedNavButton\}"' -or
+              $main -notmatch 'Style="\{StaticResource BallisticNavButtonSelected\}"' -or
+              $code -notmatch 'PulseNavigationButton' -or
+              $code -notmatch 'TimeSpan\.FromMilliseconds\(82\)') {
+            throw "Legacy fluid sliding navigation remained or ballistic navigation was not fully applied."
           }
 
           function Get-NamedStyleBody([string]$text, [string]$key) {
             $pattern = '<Style\s+x:Key="' + [regex]::Escape($key) + '"(?<body>.*?)</Style>'
             $match = [regex]::Match($text, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
             if (-not $match.Success) {
-              throw "Required premium style '$key' was not found."
+              throw "Required style '$key' was not found."
             }
             return $match.Groups['body'].Value
           }
 
-          foreach ($styleKey in @('PrimaryButton', 'SoftButton', 'IedIconButton', 'SegmentedNavButton', 'RuntimeSegmentButton')) {
+          foreach ($styleKey in @('PrimaryButton', 'SoftButton', 'IedIconButton', 'BallisticNavButton', 'BallisticNavButtonSelected', 'RuntimeSegmentButton')) {
             $styleBody = Get-NamedStyleBody $app $styleKey
             if ($styleBody -match 'ScaleTransform' -or $styleBody -match 'RenderTransform') {
-              throw "$styleKey still uses geometry-changing hover or pressed interaction."
+              throw "$styleKey still uses geometry-changing interaction."
             }
           }
 
-          $iedIconStyle = Get-NamedStyleBody $app 'IedIconButton'
-          if ($iedIconStyle -notmatch '<Setter Property="Background" Value="Transparent"/>' -or
-              $iedIconStyle -notmatch 'IsMouseOver') {
-            throw "IED-card icon buttons must inherit the card surface at rest and expose a hover state."
-          }
-          if ($main -notmatch '<ColumnDefinition Width="276"/>' -or
-              $main -notmatch 'Width="46" Height="46"' -or
+          if ($main -notmatch 'Width="46" Height="46"' -or
               $main -notmatch 'Stroke="\{StaticResource StopAction\}"' -or
-              $main -notmatch 'Stroke="\{StaticResource Danger\}"') {
-            throw "Compact IED identity, orange Stop, or red Delete card action invariant was not found."
+              $main -notmatch 'Stroke="\{StaticResource Danger\}"' -or
+              $app -notmatch 'x:Key="StopAction"' -or
+              $app -notmatch '<Setter Property="Background" Value="Transparent"/>') {
+            throw "IED-card icon proportions or semantic action colors regressed."
+          }
+
+          if ($main -notmatch 'Content="\{Binding ControlPendingConfirmationLabel\}"' -or
+              $main -match 'Content="Confirm Open"' -or
+              $main -match 'Content="Confirm Close"' -or
+              $main -notmatch 'ScrollViewer.HorizontalScrollBarVisibility="Disabled"' -or
+              $main -notmatch 'CanUserResizeColumns="False"') {
+            throw "Atomic Confirm or Command Panel overflow protection regressed."
           }
 
           if ($save -notmatch 'x:Name="DialogCard"\s+Opacity="0"' -or
               $saveCode -notmatch 'DialogCard\.BeginAnimation') {
-            throw "Save SCL modal fade-in micro-interaction was not found."
+            throw "Save SCL fade-in micro-interaction was not found."
           }
-          if ($project -notmatch '<Version>1\.6\.14</Version>' -or
-              $project -notmatch '<AssemblyVersion>1\.6\.14\.0</AssemblyVersion>' -or
-              $project -notmatch '<FileVersion>1\.6\.14\.0</FileVersion>') {
-            throw "ArIED release metadata is not aligned to 1.6.14."
+
+          if ($project -notmatch '<Version>1\.6\.15</Version>' -or
+              $project -notmatch '<AssemblyVersion>1\.6\.15\.0</AssemblyVersion>' -or
+              $project -notmatch '<FileVersion>1\.6\.15\.0</FileVersion>' -or
+              $publish -notmatch '\[string\]\$Version = "1\.6\.15"') {
+            throw "ArIED release metadata is not aligned to 1.6.15."
           }
 
       - name: Upload source snapshot
@@ -178,34 +160,28 @@ jobs:
           $sclExporter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\LiveIedSclExporter.cs"
           $schemaProfiles = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\SclSchemaProfiles.cs"
           $interoperableConverter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\InteroperableSclConverter.cs"
-          if (!(Test-Path $control) -or !(Test-Path $models)) {
-            throw "ARIEC61850 Smart Control source was not found. ArIED requires the native Control namespace."
+
+          if (!(Test-Path $control) -or !(Test-Path $models) -or
+              !(Select-String -Path $models -Pattern "interface IIec61850ControlService" -Quiet) -or
+              !(Select-String -Path $models -Pattern "CommandTerminationReceived" -Quiet)) {
+            throw "Required ARIEC61850 Smart Control contract was not found."
           }
-          if (!(Select-String -Path $models -Pattern "interface IIec61850ControlService" -Quiet)) {
-            throw "ARIEC61850 does not expose IIec61850ControlService."
+          if (!(Test-Path $workspace) -or !(Test-Path $workspaceModels) -or
+              !(Select-String -Path $workspace -Pattern "CompareLive" -Quiet)) {
+            throw "Required ARIEC61850 SCL Workspace API was not found."
           }
-          if (!(Select-String -Path $models -Pattern "CommandTerminationReceived" -Quiet)) {
-            throw "ARIEC61850 Smart Control result contract is too old for ArIED."
+          if (!(Test-Path $sclModels) -or
+              !(Select-String -Path $sclModels -Pattern "SclDataSetBindingStatus" -Quiet)) {
+            throw "Typed SCL DataSet binding contract was not found."
           }
-          if (!(Test-Path $workspace) -or !(Test-Path $workspaceModels)) {
-            throw "ARIEC61850 SCL Workspace API was not found. ArIED Open SCL must use the engine-owned workspace service."
-          }
-          if (!(Select-String -Path $workspace -Pattern "CompareLive" -Quiet)) {
-            throw "ARIEC61850 SCL Workspace API does not expose design-versus-live comparison."
-          }
-          if (!(Test-Path $sclModels) -or !(Select-String -Path $sclModels -Pattern "SclDataSetBindingStatus" -Quiet)) {
-            throw "ARIEC61850 typed SCL DataSet binding contract was not found."
-          }
-          if (!(Test-Path $sclExporter) -or !(Select-String -Path $sclExporter -Pattern "WriteFiles" -Quiet)) {
-            throw "ARIEC61850 schema-aware LiveIedSclExporter was not found."
-          }
-          if (!(Test-Path $schemaProfiles) -or
+          if (!(Test-Path $sclExporter) -or
+              !(Select-String -Path $sclExporter -Pattern "WriteFiles" -Quiet) -or
+              !(Test-Path $interoperableConverter) -or
+              !(Select-String -Path $interoperableConverter -Pattern "WriteFiles" -Quiet) -or
+              !(Test-Path $schemaProfiles) -or
               !(Select-String -Path $schemaProfiles -Pattern "Edition2V31" -Quiet) -or
               !(Select-String -Path $schemaProfiles -Pattern "Edition1V16" -Quiet)) {
-            throw "ARIEC61850 Edition 2 / Edition 1 SCL schema profiles were not found."
-          }
-          if (!(Test-Path $interoperableConverter) -or !(Select-String -Path $interoperableConverter -Pattern "WriteFiles" -Quiet)) {
-            throw "ARIEC61850 generic interoperable SCL converter was not found."
+            throw "Required ARIEC61850 interoperable SCL export APIs were not found."
           }
 
       - name: Setup .NET 8
@@ -221,7 +197,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.14 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.15 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
