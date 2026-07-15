@@ -36,7 +36,7 @@ public static class SclWorkspaceSignalMapper
         }
 
         return signals
-            .Where(signal => signal.IsSasVisibleSignal)
+            .Where(signal => SasOperationalSignalPolicy.IsVisible(signal))
             .GroupBy(signal => NormalizeReference(signal.ObjectReference), StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .OrderBy(signal => signal.SortPriority)
