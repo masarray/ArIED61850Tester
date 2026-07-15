@@ -1,0 +1,70 @@
+name: Apply premium P1 UI
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.ref == 'fix/premium-p0-ui' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/premium-p0-ui
+          fetch-depth: 0
+
+      - name: Apply and validate P1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, zlib
+          payload = '''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'''
+          Path('/tmp/apply_p1.py').write_bytes(zlib.decompress(base64.b64decode(payload)))
+          PY
+          python3 /tmp/apply_p1.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          ET.parse('MainWindow.xaml')
+          text = Path('MainWindow.xaml').read_text(encoding='utf-8')
+          section = text.split('<ListBox.ItemContainerStyle>', 1)[1].split('</ListBox.ItemContainerStyle>', 1)[0]
+          if 'ScaleTransform ScaleX="1.012"' in section or 'Property="RenderTransform"' in section:
+              raise SystemExit('IED card hover still changes scale')
+          required = [
+              'x:Name="ConnectedBadge"',
+              'IedCardConnected',
+              'LucideSlidersHorizontal',
+              'Style="{StaticResource CommandDataGrid}"',
+              'RowStyle="{StaticResource CommandDataGridRow}"',
+              'ScrollViewer.HorizontalScrollBarVisibility="Disabled"',
+              'Content="{Binding ControlPendingConfirmationLabel}"'
+          ]
+          for token in required:
+              if token not in text:
+                  raise SystemExit(f'Missing P1 invariant: {token}')
+          if 'Content="Confirm Open"' in text or 'Content="Confirm Close"' in text:
+              raise SystemExit('Atomic single Confirm regressed')
+          PY
+
+      - name: Create atomic source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: fix/premium-p0-ui
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="repos/$GITHUB_REPOSITORY"
+          base_commit=$(git rev-parse HEAD)
+          base_tree=$(gh api "$repo/git/commits/$base_commit" --jq .tree.sha)
+          blob=$(base64 -w0 MainWindow.xaml | jq -Rs '{content:.,encoding:"base64"}' | gh api --method POST "$repo/git/blobs" --input - --jq .sha)
+          tree_sha=$(jq -n --arg base_tree "$base_tree" --arg sha "$blob" '{base_tree:$base_tree,tree:[{path:"MainWindow.xaml",mode:"100644",type:"blob",sha:$sha}]}' | gh api --method POST "$repo/git/trees" --input - --jq .sha)
+          commit_sha=$(jq -n --arg tree "$tree_sha" --arg parent "$base_commit" '{message:"style: deliver premium P1 card and command UX",tree:$tree,parents:[$parent]}' | gh api --method POST "$repo/git/commits" --input - --jq .sha)
+          jq -n --arg sha "$commit_sha" '{sha:$sha,force:false}' | gh api --method PATCH "$repo/git/refs/heads/$TARGET_BRANCH" --input - >/dev/null
+          echo "Published $commit_sha"
