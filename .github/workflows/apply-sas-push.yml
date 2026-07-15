@@ -1,0 +1,24 @@
+name: Apply SAS operational profile on push
+
+on:
+  push:
+    branches: [ fix/sas-operational-signal-profile ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, 'expose exact SAS operational signals only') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/sas-operational-signal-profile
+          fetch-depth: 0
+      - name: Apply profile and publish final tree
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash scripts/ci/apply-sas-profile.sh
