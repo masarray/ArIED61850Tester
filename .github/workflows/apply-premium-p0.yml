@@ -19,13 +19,17 @@ jobs:
           fetch-depth: 0
 
       - name: Decode and validate premium source
+        id: decode
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          git fetch --quiet origin feat/per-card-scl-export
-          git show origin/feat/per-card-scl-export:.staging/p0-premium-bundle.zlib.b64 > /tmp/p0-premium-bundle.zlib.b64
+          set +e
+          {
+            set -x
+            git fetch --quiet origin feat/per-card-scl-export
+            git show origin/feat/per-card-scl-export:.staging/p0-premium-bundle.zlib.b64 > /tmp/p0-premium-bundle.zlib.b64
 
-          python3 - <<'PY'
+            python3 - <<'PY'
           from pathlib import Path
           import base64, json, zlib
 
@@ -39,28 +43,46 @@ jobs:
               Path(path).write_text(content, encoding='utf-8')
           PY
 
-          python3 - <<'PY'
+            python3 - <<'PY'
           import xml.etree.ElementTree as ET
           for path in ('App.xaml', 'MainWindow.xaml', 'SaveSclWindow.xaml'):
               ET.parse(path)
           PY
 
-          grep -q 'x:Name="EditionIndicator"' SaveSclWindow.xaml
-          grep -q 'Content="Edition 2"' SaveSclWindow.xaml
-          grep -q 'Content="Edition 1"' SaveSclWindow.xaml
-          ! grep -q '<ComboBox' SaveSclWindow.xaml
-          ! grep -q 'Schema V' SaveSclWindow.xaml
-          ! grep -q '>3.1<' SaveSclWindow.xaml
-          ! grep -q '>1.6<' SaveSclWindow.xaml
-          grep -q 'HorizontalAlignment="Center" Margin="0,5,25,0"' MainWindow.xaml
-          grep -q 'LucideRefreshCw' MainWindow.xaml
-          grep -q 'ScrollViewer.HorizontalScrollBarVisibility="Disabled"' MainWindow.xaml
-          grep -q 'CanUserResizeColumns="False" ClipToBounds="True"' MainWindow.xaml
-          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+            grep -q 'x:Name="EditionIndicator"' SaveSclWindow.xaml
+            grep -q 'Content="Edition 2"' SaveSclWindow.xaml
+            grep -q 'Content="Edition 1"' SaveSclWindow.xaml
+            ! grep -q '<ComboBox' SaveSclWindow.xaml
+            ! grep -q 'Schema V' SaveSclWindow.xaml
+            ! grep -q '>3.1<' SaveSclWindow.xaml
+            ! grep -q '>1.6<' SaveSclWindow.xaml
+            grep -q 'HorizontalAlignment="Center" Margin="0,5,25,0"' MainWindow.xaml
+            grep -q 'LucideRefreshCw' MainWindow.xaml
+            grep -q 'ScrollViewer.HorizontalScrollBarVisibility="Disabled"' MainWindow.xaml
+            grep -q 'CanUserResizeColumns="False" ClipToBounds="True"' MainWindow.xaml
+            grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+          } > /tmp/p0-decode.log 2>&1
+          status=$?
+          set -e
+          exit "$status"
+
+      - name: Upload decode evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premium-p0-decode-log
+          path: /tmp/p0-decode.log
+          if-no-files-found: error
+
+      - name: Stop after decode failure
+        if: steps.decode.outcome == 'failure'
+        shell: bash
+        run: exit 1
 
       - name: Create atomic production commit
+        if: steps.decode.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: fix/premium-p0-ui
