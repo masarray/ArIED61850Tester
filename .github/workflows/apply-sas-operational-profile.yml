@@ -1,0 +1,159 @@
+name: Apply SAS operational signal profile
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.ref == 'fix/premium-p2-ui' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/premium-p2-ui
+          fetch-depth: 0
+
+      - name: Apply operational SAS signal profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .staging/sas-operational/profile.patch.gz.b64 > /tmp/profile.patch.gz
+          echo "f7ee9434c10b0b35256bb52f54c34a656d09fdcd59855b68749c86a99464f527  /tmp/profile.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/profile.patch.gz > /tmp/profile.patch
+          git apply --ignore-space-change --ignore-whitespace /tmp/profile.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          project = Path('ArIED61850Tester.csproj')
+          text = project.read_text(encoding='utf-8')
+          text = text.replace('<Version>1.6.15</Version>', '<Version>1.6.16</Version>')
+          text = text.replace('<AssemblyVersion>1.6.15.0</AssemblyVersion>', '<AssemblyVersion>1.6.16.0</AssemblyVersion>')
+          text = text.replace('<FileVersion>1.6.15.0</FileVersion>', '<FileVersion>1.6.16.0</FileVersion>')
+          project.write_text(text, encoding='utf-8', newline='\n')
+
+          publish = Path('scripts/publish-windows-portable.ps1')
+          text = publish.read_text(encoding='utf-8').replace('1.6.15', '1.6.16')
+          publish.write_text(text, encoding='utf-8', newline='\n')
+
+          workflow = Path('.github/workflows/build.yml')
+          text = workflow.read_text(encoding='utf-8')
+          text = text.replace('1.6.15', '1.6.16')
+          text = text.replace(
+              'Verify premium P0, P1, P2, IED-card and ballistic-nav UX invariants',
+              'Verify premium UX and SAS operational-signal invariants')
+
+          read_anchor = '          $publish = Get-Content .\\ArIED61850Tester\\scripts\\publish-windows-portable.ps1 -Raw\n'
+          read_lines = [
+              '          $signalDefinition = Get-Content .\\ArIED61850Tester\\Models\\SignalDefinition.cs -Raw',
+              '          $nativeClient = Get-Content .\\ArIED61850Tester\\Services\\NativeIec61850Client.cs -Raw',
+              '          $nativeMapper = Get-Content .\\ArIED61850Tester\\Services\\NativeMmsDiscoveryMapper.cs -Raw',
+              '          $sclMapper = Get-Content .\\ArIED61850Tester\\Services\\SclWorkspaceSignalMapper.cs -Raw',
+          ]
+          read_block = read_anchor + '\n'.join(read_lines) + '\n'
+          if '$signalDefinition = Get-Content' not in text:
+              if read_anchor not in text:
+                  raise SystemExit('workflow read anchor was not found')
+              text = text.replace(read_anchor, read_block, 1)
+
+          version_anchor = "          if ($project -notmatch '<Version>1\\.6\\.16</Version>' -or\n"
+          policy_lines = [
+              "          if ($main -notmatch 'Height=\"48\"' -or",
+              "              $main -notmatch 'Background=\"#D8E2F0\"' -or",
+              "              $main -notmatch 'BorderBrush=\"#B7C6DA\"') {",
+              '            throw "Ballistic navigation shell geometry or contrast regressed."',
+              '          }',
+              '',
+              "          if ($signalDefinition -notmatch 'IsSasOperationalSignal' -or",
+              "              $signalDefinition -notmatch 'IsSasOperationalControl' -or",
+              "              $signalDefinition -notmatch 'IsSasVisibleSignal' -or",
+              "              $signalDefinition -notmatch 'dataObject is \"mod\" or \"beh\"' -or",
+              "              $signalDefinition -notmatch '\\\\.op\\\\.general' -or",
+              "              $signalDefinition -notmatch '\\\\.str\\\\.general' -or",
+              "              $signalDefinition -notmatch 'IsDefaultScadaMeasurementMagnitude') {",
+              '            throw "The typed SAS operational signal policy is incomplete."',
+              '          }',
+              '',
+              "          if ($nativeClient -notmatch 'IsExactLiveDataAttributeTarget' -or",
+              "              $nativeClient -notmatch 'SAS operational points=' -or",
+              "              $nativeClient -notmatch 'IsSasOperationalControl' -or",
+              "              $nativeMapper -notmatch 'Native MMS inferred leaf candidate' -or",
+              "              $nativeMapper -notmatch 'IsSasVisibleSignal' -or",
+              "              $sclMapper -notmatch 'Where\\\\(signal => signal\\\\.IsSasVisibleSignal\\\\)') {",
+              '            throw "Discovery/SCL projection is not enforcing exact SAS operational leaves."',
+              '          }',
+              '',
+          ]
+          policy_block = '\n'.join(policy_lines) + '\n'
+          if 'The typed SAS operational signal policy is incomplete.' not in text:
+              if version_anchor not in text:
+                  raise SystemExit('workflow version anchor was not found')
+              text = text.replace(version_anchor, policy_block + version_anchor, 1)
+
+          workflow.write_text(text, encoding='utf-8', newline='\n')
+
+          for filename in ('App.xaml', 'MainWindow.xaml', 'SaveSclWindow.xaml'):
+              ET.parse(filename)
+
+          required = {
+              'Models/SignalDefinition.cs': ('IsSasVisibleSignal', 'IsOperationalSasControl'),
+              'Services/NativeIec61850Client.cs': ('IsExactLiveDataAttributeTarget', 'SAS operational points='),
+              'Services/NativeMmsDiscoveryMapper.cs': ('Native MMS exact value leaf', 'Native MMS inferred leaf candidate'),
+              'Services/SclWorkspaceSignalMapper.cs': ('IsSasVisibleSignal',),
+              'docs/SAS_OPERATIONAL_SIGNAL_PROFILE.md': ('exact, operational value leaves',),
+          }
+          for filename, tokens in required.items():
+              body = Path(filename).read_text(encoding='utf-8')
+              for token in tokens:
+                  if token not in body:
+                      raise SystemExit(f'missing {token!r} in {filename}')
+
+          if '<Version>1.6.16</Version>' not in project.read_text(encoding='utf-8'):
+              raise SystemExit('release metadata was not aligned to 1.6.16')
+          PY
+
+      - name: Create atomic production commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: fix/premium-p2-ui
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="repos/$GITHUB_REPOSITORY"
+          base_commit=$(git rev-parse HEAD)
+          base_tree=$(gh api "$repo/git/commits/$base_commit" --jq .tree.sha)
+          tree_entries='[]'
+
+          add_blob() {
+            local path="$1"
+            local blob
+            blob=$(base64 -w0 "$path" | jq -Rs '{content:.,encoding:"base64"}' | gh api --method POST "$repo/git/blobs" --input - --jq .sha)
+            tree_entries=$(jq --arg path "$path" --arg sha "$blob" '. + [{path:$path,mode:"100644",type:"blob",sha:$sha}]' <<<"$tree_entries")
+          }
+
+          for path in \
+            .github/workflows/build.yml \
+            App.xaml \
+            ArIED61850Tester.csproj \
+            MainWindow.xaml \
+            MainWindow.xaml.cs \
+            Models/SignalDefinition.cs \
+            Services/Iec61850MonitorRuntime.cs \
+            Services/NativeIec61850Client.cs \
+            Services/NativeMmsDiscoveryMapper.cs \
+            Services/SclWorkspaceSignalMapper.cs \
+            docs/SAS_OPERATIONAL_SIGNAL_PROFILE.md \
+            scripts/publish-windows-portable.ps1; do
+            add_blob "$path"
+          done
+
+          tree_sha=$(jq -n --arg base_tree "$base_tree" --argjson tree "$tree_entries" '{base_tree:$base_tree,tree:$tree}' | gh api --method POST "$repo/git/trees" --input - --jq .sha)
+          commit_sha=$(jq -n --arg tree "$tree_sha" --arg parent "$base_commit" '{message:"feat: expose only exact SAS operational signals",tree:$tree,parents:[$parent]}' | gh api --method POST "$repo/git/commits" --input - --jq .sha)
+          jq -n --arg sha "$commit_sha" '{sha:$sha,force:false}' | gh api --method PATCH "$repo/git/refs/heads/$TARGET_BRANCH" --input - >/dev/null
+          echo "Published $commit_sha"
