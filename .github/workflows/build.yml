@@ -24,12 +24,14 @@ jobs:
         shell: powershell
         run: .\ArIED61850Tester\scripts\verify-source-clean.ps1
 
-      - name: Verify premium P0 and P1 UX invariants
+      - name: Verify premium P0, P1 and P2 UX invariants
         shell: powershell
         run: |
           $app = Get-Content .\ArIED61850Tester\App.xaml -Raw
           $main = Get-Content .\ArIED61850Tester\MainWindow.xaml -Raw
           $save = Get-Content .\ArIED61850Tester\SaveSclWindow.xaml -Raw
+          $saveCode = Get-Content .\ArIED61850Tester\SaveSclWindow.xaml.cs -Raw
+          $project = Get-Content .\ArIED61850Tester\ArIED61850Tester.csproj -Raw
 
           if ($save -notmatch 'x:Name="EditionIndicator"' -or
               $save -notmatch 'Content="Edition 2"' -or
@@ -48,9 +50,8 @@ jobs:
             throw "IED card item-container style was not found."
           }
           $itemStyle = $itemStyleMatch.Groups['body'].Value
-          if ($itemStyle -match 'ScaleTransform\s+ScaleX="1\.012"' -or
-              $itemStyle -match 'Property="RenderTransform"') {
-            throw "IED card hover must not resize or transform the card. Hover may change colors only."
+          if ($itemStyle -match 'ScaleTransform' -or $itemStyle -match 'RenderTransform') {
+            throw "IED card interaction must not resize or transform the card. Hover may change colors only."
           }
           if ($main -notmatch 'x:Name="ConnectedBadge"' -or
               $app -notmatch 'x:Key="IedCardConnected"' -or
@@ -73,8 +74,62 @@ jobs:
               $main -match 'Content="Confirm Close"') {
             throw "Atomic single-button control confirmation regressed."
           }
-          if ($main -notmatch 'LucideRefreshCw' -or $main -notmatch 'HorizontalAlignment="Center"') {
-            throw "Premium Lucide icon or centered IED card layout invariant was not found."
+
+          $requiredAppTokens = @(
+            'x:Key="SurfaceRaised"',
+            'x:Key="BorderDefault"',
+            'x:Key="KeyboardFocusVisual"',
+            'x:Key="PanelTitle"',
+            'x:Key="PanelSubtitle"',
+            'x:Key="DeviceTitle"',
+            'x:Key="DeviceEndpoint"',
+            'x:Key="InsightPill"',
+            'x:Key="ConnectedBadgeStyle"'
+          )
+          foreach ($token in $requiredAppTokens) {
+            if ($app -notmatch [regex]::Escape($token)) {
+              throw "Premium P2 semantic theme or typography token was not found: $token"
+            }
+          }
+
+          $requiredMainTokens = @(
+            'Style="{StaticResource InsightPill}"',
+            'Style="{StaticResource DeviceTitle}"',
+            'Style="{StaticResource DeviceEndpoint}"',
+            'Style="{StaticResource ConnectedBadgeStyle}"',
+            'Storyboard.TargetName="ConnectedBadge"',
+            'Storyboard.TargetName="BusyOverlay"'
+          )
+          foreach ($token in $requiredMainTokens) {
+            if ($main -notmatch [regex]::Escape($token)) {
+              throw "Premium P2 presentation invariant was not found: $token"
+            }
+          }
+
+          function Get-NamedStyleBody([string]$text, [string]$key) {
+            $pattern = '<Style\s+x:Key="' + [regex]::Escape($key) + '"(?<body>.*?)</Style>'
+            $match = [regex]::Match($text, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline)
+            if (-not $match.Success) {
+              throw "Required premium style '$key' was not found."
+            }
+            return $match.Groups['body'].Value
+          }
+
+          foreach ($styleKey in @('PrimaryButton', 'SoftButton', 'IedIconButton', 'SegmentedNavButton', 'RuntimeSegmentButton')) {
+            $styleBody = Get-NamedStyleBody $app $styleKey
+            if ($styleBody -match 'ScaleTransform' -or $styleBody -match 'RenderTransform') {
+              throw "$styleKey still uses geometry-changing hover or pressed interaction."
+            }
+          }
+
+          if ($save -notmatch 'x:Name="DialogCard"\s+Opacity="0"' -or
+              $saveCode -notmatch 'DialogCard\.BeginAnimation') {
+            throw "Save SCL modal fade-in micro-interaction was not found."
+          }
+          if ($project -notmatch '<Version>1\.6\.13</Version>' -or
+              $project -notmatch '<AssemblyVersion>1\.6\.13\.0</AssemblyVersion>' -or
+              $project -notmatch '<FileVersion>1\.6\.13\.0</FileVersion>') {
+            throw "ArIED release metadata is not aligned to 1.6.13."
           }
 
       - name: Upload source snapshot
@@ -153,7 +208,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.12 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.13 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
