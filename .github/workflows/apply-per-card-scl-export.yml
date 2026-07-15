@@ -74,27 +74,41 @@ jobs:
         shell: bash
         run: exit 1
 
-      - name: Commit production source
+      - name: Publish production source
         if: steps.transform.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: feat/per-card-scl-export
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            MainWindow.xaml \
-            MainWindow.xaml.cs \
-            Models/MonitorModels.cs \
-            Services/NativeIec61850Client.cs \
-            Services/Iec61850MonitorRuntime.cs \
-            SaveSclWindow.xaml \
-            SaveSclWindow.xaml.cs \
-            docs/SCL_EXPORT.md \
-            ArIED61850Tester.csproj \
-            scripts/publish-windows-portable.ps1
-          if git diff --cached --quiet; then
-            echo "Production source is already current."
-            exit 0
-          fi
-          git commit -m "feat: add per-card interoperable SCL export"
-          git push origin HEAD:feat/per-card-scl-export
+
+          publish_file() {
+            local path="$1"
+            local message="$2"
+            local current_sha local_blob content payload
+            current_sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$TARGET_BRANCH" --jq .sha 2>/dev/null || true)
+            local_blob=$(git hash-object "$path")
+            if [ -n "$current_sha" ] && [ "$current_sha" = "$local_blob" ]; then
+              echo "$path already current"
+              return
+            fi
+            content=$(base64 -w0 "$path")
+            if [ -n "$current_sha" ]; then
+              payload=$(jq -n --arg message "$message" --arg content "$content" --arg sha "$current_sha" --arg branch "$TARGET_BRANCH" '{message:$message,content:$content,sha:$sha,branch:$branch}')
+            else
+              payload=$(jq -n --arg message "$message" --arg content "$content" --arg branch "$TARGET_BRANCH" '{message:$message,content:$content,branch:$branch}')
+            fi
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$path" --input - <<<"$payload" >/dev/null
+          }
+
+          publish_file MainWindow.xaml "feat: add IED card SCL save action"
+          publish_file MainWindow.xaml.cs "feat: add per-card SCL export workflow"
+          publish_file Models/MonitorModels.cs "feat: retain card export model"
+          publish_file Services/NativeIec61850Client.cs "feat: expose full live discovery model"
+          publish_file Services/Iec61850MonitorRuntime.cs "feat: retain live discovery model after scan"
+          publish_file SaveSclWindow.xaml "feat: add SCL edition selector"
+          publish_file SaveSclWindow.xaml.cs "feat: add SCL edition selector model"
+          publish_file docs/SCL_EXPORT.md "docs: document per-card SCL export"
+          publish_file ArIED61850Tester.csproj "release: align SCL export version"
+          publish_file scripts/publish-windows-portable.ps1 "release: align portable SCL export version"
