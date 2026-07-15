@@ -90,7 +90,6 @@ jobs:
           add_blob MainWindow.xaml
           add_blob ArIED61850Tester.csproj
           add_blob scripts/publish-windows-portable.ps1
-          add_blob .github/workflows/build.yml
 
           tree_sha=$(jq -n --arg base_tree "$base_tree" --argjson tree "$tree_entries" '{base_tree:$base_tree,tree:$tree}' | gh api --method POST "$repo/git/trees" --input - --jq .sha)
           commit_sha=$(jq -n --arg tree "$tree_sha" --arg parent "$base_commit" '{message:"style: refine premium IED card proportions and actions",tree:$tree,parents:[$parent]}' | gh api --method POST "$repo/git/commits" --input - --jq .sha)
