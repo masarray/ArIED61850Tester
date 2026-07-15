@@ -19,43 +19,65 @@ jobs:
           fetch-depth: 0
 
       - name: Apply and validate reviewed source
+        id: transform
+        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          git fetch origin main
-          git checkout origin/main -- \
-            MainWindow.xaml \
-            MainWindow.xaml.cs \
-            Models/MonitorModels.cs \
-            Services/NativeIec61850Client.cs \
-            Services/Iec61850MonitorRuntime.cs \
-            ArIED61850Tester.csproj \
-            scripts/publish-windows-portable.ps1
-          rm -f SaveSclWindow.xaml SaveSclWindow.xaml.cs docs/SCL_EXPORT.md
-          python3 - <<'PY'
+          set +e
+          {
+            set -x
+            git fetch origin main
+            git checkout origin/main -- \
+              MainWindow.xaml \
+              MainWindow.xaml.cs \
+              Models/MonitorModels.cs \
+              Services/NativeIec61850Client.cs \
+              Services/Iec61850MonitorRuntime.cs \
+              ArIED61850Tester.csproj \
+              scripts/publish-windows-portable.ps1
+            rm -f SaveSclWindow.xaml SaveSclWindow.xaml.cs docs/SCL_EXPORT.md
+            python3 - <<'PY'
           from pathlib import Path
           import base64, zlib
           payload = Path('.staging/apply_scl_export.py.zlib.b64').read_text(encoding='utf-8').strip()
           source = zlib.decompress(base64.b64decode(payload)).decode('utf-8')
           exec(compile(source, 'apply_scl_export.py', 'exec'))
           PY
-          python3 - <<'PY'
+            python3 - <<'PY'
           import xml.etree.ElementTree as ET
           ET.parse('MainWindow.xaml')
           ET.parse('SaveSclWindow.xaml')
           PY
-          grep -q 'Click="IedSaveScl_Click"' MainWindow.xaml
-          grep -q 'HorizontalAlignment="Right" VerticalAlignment="Top"' MainWindow.xaml
-          grep -q 'InteroperableSclConverter.WriteFiles' MainWindow.xaml.cs
-          grep -q 'LiveIedSclExporter.WriteFiles' MainWindow.xaml.cs
-          grep -q 'LiveDiscoveryModel' Models/MonitorModels.cs
-          grep -q 'LastLiveModel' Services/NativeIec61850Client.cs
-          grep -q '<Version>1.6.10</Version>' ArIED61850Tester.csproj
-          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
-          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+            grep -q 'Click="IedSaveScl_Click"' MainWindow.xaml
+            grep -q 'HorizontalAlignment="Right" VerticalAlignment="Top"' MainWindow.xaml
+            grep -q 'InteroperableSclConverter.WriteFiles' MainWindow.xaml.cs
+            grep -q 'LiveIedSclExporter.WriteFiles' MainWindow.xaml.cs
+            grep -q 'LiveDiscoveryModel' Models/MonitorModels.cs
+            grep -q 'LastLiveModel' Services/NativeIec61850Client.cs
+            grep -q '<Version>1.6.10</Version>' ArIED61850Tester.csproj
+            grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+            ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+          } > .staging/transform-mismatch.log 2>&1
+          status=$?
+          set -e
+          exit "$status"
+
+      - name: Upload transform mismatch
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: per-card-scl-export-transform-mismatch
+          path: .staging/transform-mismatch.log
+          if-no-files-found: error
+
+      - name: Stop after transform failure
+        if: steps.transform.outcome == 'failure'
+        shell: bash
+        run: exit 1
 
       - name: Create atomic production commit
+        if: steps.transform.outcome == 'success'
         id: publish
         continue-on-error: true
         env:
@@ -97,7 +119,7 @@ jobs:
           exit "$status"
 
       - name: Upload atomic publication log
-        if: always()
+        if: steps.transform.outcome == 'success' && always()
         uses: actions/upload-artifact@v4
         with:
           name: per-card-scl-export-atomic-log
