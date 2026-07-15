@@ -95,6 +95,16 @@
             <GradientStop Color="#EDF4FF" Offset="0"/>
             <GradientStop Color="#F7FAFF" Offset="1"/>
         </LinearGradientBrush>
+        <LinearGradientBrush x:Key="CommandOpenGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#1A9A62" Offset="0"/>
+            <GradientStop Color="#087247" Offset="0.55"/>
+            <GradientStop Color="#034B2E" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="CommandCloseGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#EE5151" Offset="0"/>
+            <GradientStop Color="#B6252D" Offset="0.55"/>
+            <GradientStop Color="#75141D" Offset="1"/>
+        </LinearGradientBrush>
 
         <!-- Lucide-compatible 24 px outline geometries used by every visible application action. -->
         <Geometry x:Key="LucidePlay">M8,5 L19,12 L8,19 Z</Geometry>
@@ -281,96 +291,87 @@
             <Setter Property="Background" Value="#F3F7FF"/>
         </Style>
 
-        <Style x:Key="CommandOpenButton" TargetType="Button">
-            <Setter Property="Background" Value="#ECFDF3"/>
-            <Setter Property="Foreground" Value="#067647"/>
-            <Setter Property="BorderBrush" Value="#ABEFC6"/>
+        <Style x:Key="CommandActionButtonBase" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="MinHeight" Value="31"/>
+            <Setter Property="Padding" Value="15,7"/>
+            <Setter Property="MinWidth" Value="66"/>
+            <Setter Property="MinHeight" Value="33"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="SnapsToDevicePixels" Value="True"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
+                        <Grid SnapsToDevicePixels="True">
+                            <Border x:Name="Chrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="11">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="11" ShadowDepth="3" Opacity="0.22" Color="#31445F"/>
+                                </Border.Effect>
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}"/>
+                            </Border>
+                            <Border x:Name="InteractionSurface" Background="Transparent" CornerRadius="11"
+                                    BorderBrush="Transparent" BorderThickness="1" IsHitTestVisible="False"/>
+                        </Grid>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#D1FADF"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.78"/></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.42"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="InteractionSurface" Property="Background" Value="#30FFFFFF"/>
+                                <Setter TargetName="InteractionSurface" Property="BorderBrush" Value="#8AFFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.80"/>
+                                <Setter TargetName="InteractionSurface" Property="Background" Value="#18FFFFFF"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="InteractionSurface" Property="BorderBrush" Value="White"/>
+                                <Setter TargetName="InteractionSurface" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.38"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <Style x:Key="CommandCloseButton" TargetType="Button">
-            <Setter Property="Background" Value="#FEF3F2"/>
-            <Setter Property="Foreground" Value="#B42318"/>
-            <Setter Property="BorderBrush" Value="#FECDCA"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,6"/>
-            <Setter Property="MinHeight" Value="31"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Background" Value="#FEE4E2"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.78"/></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.42"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        <Style x:Key="CommandOpenButton" TargetType="Button" BasedOn="{StaticResource CommandActionButtonBase}">
+            <Setter Property="Background" Value="{StaticResource CommandOpenGradient}"/>
+            <Setter Property="BorderBrush" Value="#69D2A1"/>
         </Style>
 
-        <Style x:Key="CommandConfirmButton" TargetType="Button">
-            <Setter Property="Background" Value="#ECFDF3"/>
-            <Setter Property="Foreground" Value="#067647"/>
-            <Setter Property="BorderBrush" Value="#ABEFC6"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="14,6"/>
+        <Style x:Key="CommandCloseButton" TargetType="Button" BasedOn="{StaticResource CommandActionButtonBase}">
+            <Setter Property="Background" Value="{StaticResource CommandCloseGradient}"/>
+            <Setter Property="BorderBrush" Value="#FF9A9A"/>
+        </Style>
+
+        <Style x:Key="CommandConfirmButton" TargetType="Button" BasedOn="{StaticResource CommandActionButtonBase}">
+            <Setter Property="Background" Value="{StaticResource CommandOpenGradient}"/>
+            <Setter Property="BorderBrush" Value="#69D2A1"/>
             <Setter Property="MinWidth" Value="108"/>
-            <Setter Property="MinHeight" Value="31"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Foreground}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.90"/></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.74"/></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.42"/><Setter Property="Cursor" Value="Arrow"/></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding ControlPendingAction}" Value="Close">
-                    <Setter Property="Background" Value="#FEF3F2"/>
-                    <Setter Property="Foreground" Value="#B42318"/>
-                    <Setter Property="BorderBrush" Value="#FECDCA"/>
+                    <Setter Property="Background" Value="{StaticResource CommandCloseGradient}"/>
+                    <Setter Property="BorderBrush" Value="#FF9A9A"/>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
 
+        <!-- The card surface remains visible through every IED action button. Only hover/press adds chrome. -->
         <Style x:Key="IedIconButton" TargetType="Button">
             <Setter Property="Width" Value="31"/>
             <Setter Property="Height" Value="31"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="1"/>
-            <Setter Property="Background" Value="#F6F9FF"/>
-            <Setter Property="BorderBrush" Value="#D6E1F0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Focusable" Value="False"/>
@@ -378,18 +379,17 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="9"
-                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" RenderTransformOrigin="0.5,0.5">
-                            <Border.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Border.RenderTransform>
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="#CFFFFFFF"/>
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="#8EAFE3"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#E7F0FF"/>
-                                <Setter TargetName="Chrome" Property="Opacity" Value="0.82"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="#A6DCEBFF"/>
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.84"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="Chrome" Property="Opacity" Value="0.32"/>
