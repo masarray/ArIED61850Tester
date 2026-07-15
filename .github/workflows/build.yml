@@ -24,7 +24,7 @@ jobs:
         shell: powershell
         run: .\ArIED61850Tester\scripts\verify-source-clean.ps1
 
-      - name: Verify premium P0, P1 and P2 UX invariants
+      - name: Verify premium P0, P1, P2 and IED-card UX invariants
         shell: powershell
         run: |
           $app = Get-Content .\ArIED61850Tester\App.xaml -Raw
@@ -84,7 +84,8 @@ jobs:
             'x:Key="DeviceTitle"',
             'x:Key="DeviceEndpoint"',
             'x:Key="InsightPill"',
-            'x:Key="ConnectedBadgeStyle"'
+            'x:Key="ConnectedBadgeStyle"',
+            'x:Key="StopAction"'
           )
           foreach ($token in $requiredAppTokens) {
             if ($app -notmatch [regex]::Escape($token)) {
@@ -122,14 +123,26 @@ jobs:
             }
           }
 
+          $iedIconStyle = Get-NamedStyleBody $app 'IedIconButton'
+          if ($iedIconStyle -notmatch '<Setter Property="Background" Value="Transparent"/>' -or
+              $iedIconStyle -notmatch 'IsMouseOver') {
+            throw "IED-card icon buttons must inherit the card surface at rest and expose a hover state."
+          }
+          if ($main -notmatch '<ColumnDefinition Width="276"/>' -or
+              $main -notmatch 'Width="46" Height="46"' -or
+              $main -notmatch 'Stroke="\{StaticResource StopAction\}"' -or
+              $main -notmatch 'Stroke="\{StaticResource Danger\}"') {
+            throw "Compact IED identity, orange Stop, or red Delete card action invariant was not found."
+          }
+
           if ($save -notmatch 'x:Name="DialogCard"\s+Opacity="0"' -or
               $saveCode -notmatch 'DialogCard\.BeginAnimation') {
             throw "Save SCL modal fade-in micro-interaction was not found."
           }
-          if ($project -notmatch '<Version>1\.6\.13</Version>' -or
-              $project -notmatch '<AssemblyVersion>1\.6\.13\.0</AssemblyVersion>' -or
-              $project -notmatch '<FileVersion>1\.6\.13\.0</FileVersion>') {
-            throw "ArIED release metadata is not aligned to 1.6.13."
+          if ($project -notmatch '<Version>1\.6\.14</Version>' -or
+              $project -notmatch '<AssemblyVersion>1\.6\.14\.0</AssemblyVersion>' -or
+              $project -notmatch '<FileVersion>1\.6\.14\.0</FileVersion>') {
+            throw "ArIED release metadata is not aligned to 1.6.14."
           }
 
       - name: Upload source snapshot
@@ -208,7 +221,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.13 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.14 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
