@@ -216,7 +216,7 @@
 
 <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Top">
                                                     <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis"/>
+                                                               Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis" Margin="0,0,28,0"/>
                                                     <TextBlock Text="{Binding EndpointText}" FontSize="11.6"
                                                                Foreground="{StaticResource Muted}" Margin="0,2,0,0"
                                                                TextTrimming="CharacterEllipsis"/>
@@ -240,14 +240,23 @@
                                                             <Path Data="M16.5,3.5 A2.12,2.12 0 0 1 19.5,6.5 L7,19 L3,20 L4,16 Z" Stroke="#2563EB" StrokeThickness="2" StrokeLineJoin="Round" Fill="Transparent"/>
                                                         </Canvas></Viewbox>
                                                     </Button>
-                                                    <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedRemove_Click"
-                                                            IsEnabled="{Binding IsActionEnabled}" ToolTip="{Binding RemoveToolTip}">
+                                                    <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedSaveScl_Click"
+                                                            IsEnabled="{Binding CanSaveScl}" ToolTip="{Binding SaveSclToolTip}">
                                                         <Viewbox Width="16" Height="16"><Canvas Width="24" Height="24">
-                                                            <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="#64748B" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                            <Path Data="M5,4 H17 L20,7 V20 H5 Z M8,4 V9 H16 V4 M9,20 V14 H16 V20" Stroke="#2563EB" StrokeThickness="1.8" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
                                                         </Canvas></Viewbox>
                                                     </Button>
                                                 </StackPanel>
                                             </Grid>
+
+                                            <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedRemove_Click"
+                                                    IsEnabled="{Binding IsActionEnabled}" ToolTip="{Binding RemoveToolTip}"
+                                                    Width="25" Height="25" Margin="0,-4,-4,0"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="12">
+                                                <Viewbox Width="14" Height="14"><Canvas Width="24" Height="24">
+                                                    <Path Data="M18,6 L6,18 M6,6 L18,18" Stroke="#64748B" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                </Canvas></Viewbox>
+                                            </Button>
 
                                             <Border x:Name="BusyOverlay" Visibility="Collapsed" Background="#F2F7FDFA" CornerRadius="12"
                                                     BorderBrush="#B8CEF3" BorderThickness="1" Padding="12" Panel.ZIndex="20">
