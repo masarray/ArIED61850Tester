@@ -69,8 +69,6 @@ jobs:
 
           if ($sasPolicy -notmatch 'public static bool IsVisible' -or
               $sasPolicy -notmatch 'IsOperationalProtectionLeaf' -or
-              $sasPolicy -notmatch '\\.op\\.general' -or
-              $sasPolicy -notmatch '\\.str\\.general' -or
               $sasPolicy -notmatch 'IsFundamentalMeasurement' -or
               $sasPolicy -notmatch 'IsUnprovenSyntheticCandidate' -or
               $sasPolicy -notmatch 'dataObject is "mod" or "beh"') {
