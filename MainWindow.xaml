@@ -80,7 +80,7 @@
             <TabItem Header="IEC 61850 Explorer">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="258"/>
+                        <ColumnDefinition Width="276"/>
                         <ColumnDefinition Width="12"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
@@ -176,7 +176,7 @@
                                             <Setter.Value>
                                                 <ControlTemplate TargetType="ListBoxItem">
                                                     <Border x:Name="Card" Background="{StaticResource IedCardSurface}"
-                                                            BorderBrush="{StaticResource BorderDefault}" BorderThickness="1" CornerRadius="16" Padding="9">
+                                                            BorderBrush="{StaticResource BorderDefault}" BorderThickness="1" CornerRadius="16" Padding="10">
                                                         <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.08" Color="#1E3355"/></Border.Effect>
                                                         <ContentPresenter/>
                                                     </Border>
@@ -217,34 +217,38 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid MinHeight="72">
+                                        <Grid MinHeight="82">
                                             <Grid x:Name="CardContent">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="66"/>
+                                                    <ColumnDefinition Width="58"/>
                                                     <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
-                                                <!-- Large borderless relay / BCU icon; icon color is the connection state. -->
-                                      <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="62" Height="62" Margin="0,0,4,0" VerticalAlignment="Center" Panel.ZIndex="2">
-                                          <Viewbox Width="60" Height="60" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                              <Path x:Name="RelayDeviceIcon" Data="M 2 0 L 2 20 L 18 20 L 18 0 L 2 0 z M 3 1 L 17 1 L 17 19 L 3 19 L 3 1 z M 5 3 L 5 7 L 15 7 L 15 3 L 5 3 z M 6 4 L 14 4 L 14 6 L 6 6 L 6 4 z M 5 10 L 5 11 L 7 11 L 7 10 L 5 10 z M 9 10 L 9 11 L 11 11 L 11 10 L 9 10 z M 13 10 L 13 11 L 15 11 L 15 10 L 13 10 z M 5 13 L 5 14 L 7 14 L 7 13 L 5 13 z M 9 13 L 9 14 L 11 14 L 11 13 L 9 13 z M 13 13 L 13 14 L 15 14 L 15 13 L 13 13 z M 5 16 L 5 17 L 7 17 L 7 16 L 5 16 z M 9 16 L 9 17 L 11 17 L 11 16 L 9 16 z M 13 16 L 13 17 L 15 17 L 15 16 L 13 16 z" Fill="#EF4444" Stretch="Uniform">
-                                                  <Path.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="0" Opacity="0.58" Color="#EF4444"/></Path.Effect>
-                                              </Path>
-                                          </Viewbox>
-                                      </Grid>
+                                                <!-- Compact relay / BCU identity. The LIVE badge has its own row and never overlaps the icon. -->
+                                                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="52" Margin="0,1,6,0"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center" Panel.ZIndex="2">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="50"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                    </Grid.RowDefinitions>
+                                                    <Viewbox Grid.Row="0" Width="46" Height="46" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Path x:Name="RelayDeviceIcon" Data="M 2 0 L 2 20 L 18 20 L 18 0 L 2 0 z M 3 1 L 17 1 L 17 19 L 3 19 L 3 1 z M 5 3 L 5 7 L 15 7 L 15 3 L 5 3 z M 6 4 L 14 4 L 14 6 L 6 6 L 6 4 z M 5 10 L 5 11 L 7 11 L 7 10 L 5 10 z M 9 10 L 9 11 L 11 11 L 11 10 L 9 10 z M 13 10 L 13 11 L 15 11 L 15 10 L 13 10 z M 5 13 L 5 14 L 7 14 L 7 13 L 5 13 z M 9 13 L 9 14 L 11 14 L 11 13 L 9 13 z M 13 13 L 13 14 L 15 14 L 15 13 L 13 13 z M 5 16 L 5 17 L 7 17 L 7 16 L 5 16 z M 9 16 L 9 17 L 11 17 L 11 16 L 9 16 z M 13 16 L 13 17 L 15 17 L 15 16 L 13 16 z" Fill="#EF4444" Stretch="Uniform">
+                                                            <Path.Effect><DropShadowEffect BlurRadius="10" ShadowDepth="0" Opacity="0.48" Color="#EF4444"/></Path.Effect>
+                                                        </Path>
+                                                    </Viewbox>
+                                                    <Border x:Name="ConnectedBadge" Grid.Row="1" Style="{StaticResource ConnectedBadgeStyle}"
+                                                            HorizontalAlignment="Center" Margin="0,2,0,0" Panel.ZIndex="4">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Ellipse Width="5" Height="5" Fill="{StaticResource Connected}" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="LIVE" FontSize="8.4" FontWeight="Bold" Foreground="#107A43"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Grid>
 
-                                      <Border x:Name="ConnectedBadge" Grid.Row="1" Grid.Column="0" Style="{StaticResource ConnectedBadgeStyle}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,4,1" Panel.ZIndex="4">
-                                          <StackPanel Orientation="Horizontal">
-                                              <Ellipse Width="5" Height="5" Fill="#16A34A" Margin="0,0,4,0" VerticalAlignment="Center"/>
-                                              <TextBlock Text="LIVE" FontSize="8.6" FontWeight="Bold" Foreground="#107A43"/>
-                                          </StackPanel>
-                                      </Border>
-
-<StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="0,0,25,0">
+                                                <StackPanel Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" HorizontalAlignment="Stretch" Margin="0,1,24,0">
                                                     <TextBlock Text="{Binding Name}" Style="{StaticResource DeviceTitle}"
                                                                TextAlignment="Center" HorizontalAlignment="Stretch"/>
                                                     <TextBlock Text="{Binding EndpointText}" Style="{StaticResource DeviceEndpoint}" Margin="0,2,0,0"
@@ -253,31 +257,31 @@
 
                                                 <!-- Direct, unobstructed hit targets below the IP address. -->
                                                 <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
-                                                            HorizontalAlignment="Center" Margin="0,5,25,0" Panel.ZIndex="10">
+                                                            HorizontalAlignment="Center" Margin="0,7,24,0" Panel.ZIndex="10">
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedPlayAction_Click"
                                                             IsEnabled="{Binding CanPlayAction}" ToolTip="{Binding PlayToolTip}">
-                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucidePlay}" Style="{StaticResource LucideIcon}" Stroke="#16A34A"/></Viewbox>
+                                                        <Viewbox Width="15" Height="15"><Path Data="{StaticResource LucidePlay}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Connected}"/></Viewbox>
                                                     </Button>
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedStopAction_Click"
                                                             IsEnabled="{Binding CanStopAction}" ToolTip="{Binding StopToolTip}">
-                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="#DC2626"/></Viewbox>
+                                                        <Viewbox Width="15" Height="15"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource StopAction}"/></Viewbox>
                                                     </Button>
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedConfigureSignals_Click"
                                                             IsEnabled="{Binding CanEditSignals}" ToolTip="{Binding ConfigureToolTip}">
-                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucidePencilLine}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                        <Viewbox Width="15" Height="15"><Path Data="{StaticResource LucidePencilLine}" Style="{StaticResource LucideIcon}"/></Viewbox>
                                                     </Button>
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedSaveScl_Click"
                                                             IsEnabled="{Binding CanSaveScl}" ToolTip="{Binding SaveSclToolTip}">
-                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSave}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                        <Viewbox Width="15" Height="15"><Path Data="{StaticResource LucideSave}" Style="{StaticResource LucideIcon}"/></Viewbox>
                                                     </Button>
                                                 </StackPanel>
                                             </Grid>
 
                                             <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedRemove_Click"
                                                     IsEnabled="{Binding IsActionEnabled}" ToolTip="{Binding RemoveToolTip}"
-                                                    Width="25" Height="25" Margin="0,-4,-4,0"
+                                                    Width="24" Height="24" Margin="0,-2,-2,0"
                                                     HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="12">
-                                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideX}" Style="{StaticResource LucideIcon}" Stroke="#64748B"/></Viewbox>
+                                                <Viewbox Width="13" Height="13"><Path Data="{StaticResource LucideX}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Danger}" StrokeThickness="2.2"/></Viewbox>
                                             </Button>
 
                                             <Border x:Name="BusyOverlay" Visibility="Collapsed" Opacity="0" Background="#F2F7FDFA" CornerRadius="12"

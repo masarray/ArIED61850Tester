@@ -23,6 +23,8 @@
         <Color x:Key="DangerSoftColor">#FEF3F2</Color>
         <Color x:Key="WarningColor">#B54708</Color>
         <Color x:Key="WarningSoftColor">#FFF8E8</Color>
+        <Color x:Key="StopActionColor">#EA580C</Color>
+        <Color x:Key="StopActionSoftColor">#FFF1E8</Color>
 
         <SolidColorBrush x:Key="Ink" Color="{StaticResource InkColor}"/>
         <SolidColorBrush x:Key="Muted" Color="{StaticResource MutedColor}"/>
@@ -44,6 +46,8 @@
         <SolidColorBrush x:Key="DangerSoft" Color="{StaticResource DangerSoftColor}"/>
         <SolidColorBrush x:Key="Warning" Color="{StaticResource WarningColor}"/>
         <SolidColorBrush x:Key="WarningSoft" Color="{StaticResource WarningSoftColor}"/>
+        <SolidColorBrush x:Key="StopAction" Color="{StaticResource StopActionColor}"/>
+        <SolidColorBrush x:Key="StopActionSoft" Color="{StaticResource StopActionSoftColor}"/>
         <SolidColorBrush x:Key="RowHover" Color="#F1F6FE"/>
         <SolidColorBrush x:Key="RowSelected" Color="#E7F0FF"/>
         <SolidColorBrush x:Key="RowSelectedBorder" Color="#9DBCF0"/>
@@ -438,13 +442,14 @@
             </Style.Triggers>
         </Style>
 
+        <!-- IED-card actions are transparent at rest so the selected/connected card surface remains continuous. -->
         <Style x:Key="IedIconButton" TargetType="Button">
-            <Setter Property="Width" Value="31"/>
-            <Setter Property="Height" Value="31"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="1"/>
-            <Setter Property="Background" Value="#F6F9FF"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BorderDefault}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Focusable" Value="True"/>
@@ -458,21 +463,21 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="#D9FFFFFF"/>
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="#91AFE0"/>
                                 <Setter TargetName="Chrome" Property="Effect">
-                                    <Setter.Value><DropShadowEffect BlurRadius="9" ShadowDepth="2" Opacity="0.12" Color="#365F9E"/></Setter.Value>
+                                    <Setter.Value><DropShadowEffect BlurRadius="8" ShadowDepth="2" Opacity="0.10" Color="#365F9E"/></Setter.Value>
                                 </Setter>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="#DFE9F8"/>
-                                <Setter TargetName="Chrome" Property="Opacity" Value="0.84"/>
+                                <Setter TargetName="Chrome" Property="Background" Value="#B8DCE8FA"/>
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.86"/>
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource FocusRing}"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Chrome" Property="Opacity" Value="0.32"/>
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.30"/>
                                 <Setter Property="Cursor" Value="Arrow"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
