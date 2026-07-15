@@ -1,0 +1,48 @@
+name: Apply premium P2 UX
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout P2 branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply deterministic P2 transform
+        run: python3 scripts/apply-premium-p2.py
+
+      - name: Validate transformed source
+        shell: bash
+        run: |
+          grep -q 'x:Key="SurfaceColor"' App.xaml
+          grep -q 'x:Key="MicroLabel"' App.xaml
+          grep -q 'Style="{StaticResource SectionTitle}"' MainWindow.xaml
+          ! grep -q 'To="1.018"' App.xaml
+          ! grep -q 'To="1.012"' App.xaml
+          ! grep -q 'ScaleX="1.06" ScaleY="1.06"' App.xaml
+          grep -q '<Version>1.6.13</Version>' ArIED61850Tester.csproj
+
+      - name: Commit P2 production source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add App.xaml MainWindow.xaml ArIED61850Tester.csproj scripts/publish-windows-portable.ps1 .github/workflows/build.yml
+          if git diff --cached --quiet; then
+            echo "P2 production source is already applied."
+            exit 0
+          fi
+          git commit -m "Polish premium P2 motion typography and theme tokens"
+          git push origin HEAD:${{ github.head_ref }}
