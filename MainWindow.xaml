@@ -20,9 +20,10 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Border x:Name="WorkflowNavShell" Width="720" Height="42" HorizontalAlignment="Left"
-                    Background="#E7ECF5" CornerRadius="21" Padding="4" Effect="{StaticResource SoftShadow}">
-                <Grid x:Name="WorkflowNavGrid" ClipToBounds="True">
+            <Border x:Name="WorkflowNavShell" Width="672" Height="56" HorizontalAlignment="Left"
+                    Background="#E7ECF5" CornerRadius="20" Padding="5" Effect="{StaticResource SoftShadow}"
+                    ClipToBounds="False">
+                <Grid x:Name="WorkflowNavGrid" ClipToBounds="False">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
@@ -216,21 +217,23 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
-                                        <Grid MinHeight="72">
+                                        <Grid MinHeight="70">
                                             <Grid x:Name="CardContent">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="66"/>
+                                                    <ColumnDefinition Width="56"/>
                                                     <ColumnDefinition Width="*"/>
                                                 </Grid.ColumnDefinitions>
-                                                <!-- Large borderless relay / BCU icon; icon color is the connection state. -->
-                                      <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="62" Height="62" Margin="0,0,4,0" VerticalAlignment="Center" Panel.ZIndex="2">
-                                          <Viewbox Width="60" Height="60" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <!-- Compact relay / BCU icon; the full SVG and glow stay inside the card. -->
+                                      <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" Width="52" Height="52" Margin="1,0,3,0"
+                                            VerticalAlignment="Center" ClipToBounds="False" Panel.ZIndex="2">
+                                          <Viewbox Width="44" Height="44" Stretch="Uniform"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center">
                                               <Path x:Name="RelayDeviceIcon" Data="M 2 0 L 2 20 L 18 20 L 18 0 L 2 0 z M 3 1 L 17 1 L 17 19 L 3 19 L 3 1 z M 5 3 L 5 7 L 15 7 L 15 3 L 5 3 z M 6 4 L 14 4 L 14 6 L 6 6 L 6 4 z M 5 10 L 5 11 L 7 11 L 7 10 L 5 10 z M 9 10 L 9 11 L 11 11 L 11 10 L 9 10 z M 13 10 L 13 11 L 15 11 L 15 10 L 13 10 z M 5 13 L 5 14 L 7 14 L 7 13 L 5 13 z M 9 13 L 9 14 L 11 14 L 11 13 L 9 13 z M 13 13 L 13 14 L 15 14 L 15 13 L 13 13 z M 5 16 L 5 17 L 7 17 L 7 16 L 5 16 z M 9 16 L 9 17 L 11 17 L 11 16 L 9 16 z M 13 16 L 13 17 L 15 17 L 15 16 L 13 16 z" Fill="#EF4444" Stretch="Uniform">
-                                                  <Path.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="0" Opacity="0.58" Color="#EF4444"/></Path.Effect>
+                                                  <Path.Effect><DropShadowEffect BlurRadius="7" ShadowDepth="0" Opacity="0.38" Color="#EF4444"/></Path.Effect>
                                               </Path>
                                           </Viewbox>
                                       </Grid>
@@ -263,7 +266,7 @@
                                                     </Button>
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedStopAction_Click"
                                                             IsEnabled="{Binding CanStopAction}" ToolTip="{Binding StopToolTip}">
-                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="#DC2626"/></Viewbox>
+                                                        <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Warning}"/></Viewbox>
                                                     </Button>
                                                     <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedConfigureSignals_Click"
                                                             IsEnabled="{Binding CanEditSignals}" ToolTip="{Binding ConfigureToolTip}">
@@ -280,7 +283,7 @@
                                                     IsEnabled="{Binding IsActionEnabled}" ToolTip="{Binding RemoveToolTip}"
                                                     Width="25" Height="25" Margin="0,-4,-4,0"
                                                     HorizontalAlignment="Right" VerticalAlignment="Top" Panel.ZIndex="12">
-                                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideX}" Style="{StaticResource LucideIcon}" Stroke="#64748B"/></Viewbox>
+                                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideX}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Danger}"/></Viewbox>
                                             </Button>
 
                                             <Border x:Name="BusyOverlay" Visibility="Collapsed" Background="#F2F7FDFA" CornerRadius="12"
@@ -327,7 +330,7 @@
                                         <DataTemplate.Triggers>
                                             <DataTrigger Binding="{Binding IsConnected}" Value="True">
                                                 <Setter TargetName="RelayDeviceIcon" Property="Fill" Value="#16A34A"/>
-                                                <Setter TargetName="RelayDeviceIcon" Property="Effect"><Setter.Value><DropShadowEffect BlurRadius="13" ShadowDepth="0" Opacity="0.48" Color="#16A34A"/></Setter.Value></Setter>
+                                                <Setter TargetName="RelayDeviceIcon" Property="Effect"><Setter.Value><DropShadowEffect BlurRadius="8" ShadowDepth="0" Opacity="0.40" Color="#16A34A"/></Setter.Value></Setter>
                                                 <Setter TargetName="ConnectedBadge" Property="Visibility" Value="Visible"/>
                                             </DataTrigger>
 <DataTrigger Binding="{Binding IsBusy}" Value="True">
