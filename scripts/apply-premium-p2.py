@@ -1,0 +1,81 @@
+from pathlib import Path
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f"P2 transform anchor not found: {label}")
+    return text.replace(old, new, 1)
+
+app_path = Path("App.xaml")
+app = app_path.read_text(encoding="utf-8")
+
+app = replace_once(app,
+'''        <Color x:Key="LineColor">#E5EAF3</Color>\n''',
+'''        <Color x:Key="LineColor">#DDE5F0</Color>\n        <!-- P2 semantic theme tokens: one source of truth for compact engineering surfaces and states. -->\n        <Color x:Key="SurfaceColor">#F8FAFD</Color>\n        <Color x:Key="SurfaceElevatedColor">#FFFFFF</Color>\n        <Color x:Key="BorderSubtleColor">#DDE5F0</Color>\n        <Color x:Key="BorderStrongColor">#B9C8DC</Color>\n        <Color x:Key="SuccessColor">#15803D</Color>\n        <Color x:Key="DangerColor">#DC2626</Color>\n        <Color x:Key="WarningColor">#D97706</Color>\n''', "semantic colors")
+
+app = replace_once(app,
+'''        <SolidColorBrush x:Key="Line" Color="{StaticResource LineColor}"/>\n        <SolidColorBrush x:Key="Panel" Color="#FFFFFF"/>\n''',
+'''        <SolidColorBrush x:Key="Line" Color="{StaticResource LineColor}"/>\n        <SolidColorBrush x:Key="Surface" Color="{StaticResource SurfaceColor}"/>\n        <SolidColorBrush x:Key="SurfaceElevated" Color="{StaticResource SurfaceElevatedColor}"/>\n        <SolidColorBrush x:Key="BorderSubtle" Color="{StaticResource BorderSubtleColor}"/>\n        <SolidColorBrush x:Key="BorderStrong" Color="{StaticResource BorderStrongColor}"/>\n        <SolidColorBrush x:Key="Success" Color="{StaticResource SuccessColor}"/>\n        <SolidColorBrush x:Key="Danger" Color="{StaticResource DangerColor}"/>\n        <SolidColorBrush x:Key="Warning" Color="{StaticResource WarningColor}"/>\n        <SolidColorBrush x:Key="Panel" Color="{StaticResource SurfaceElevatedColor}"/>\n''', "semantic brushes")
+
+for old, new, label in [
+    ('<GradientStop Color="#EAF0F8" Offset="0"/>', '<GradientStop Color="#E8EEF7" Offset="0"/>', 'app gradient start'),
+    ('<GradientStop Color="#F5F8FC" Offset="0.55"/>', '<GradientStop Color="#F3F7FC" Offset="0.52"/>', 'app gradient mid'),
+    ('<GradientStop Color="#EDF3FA" Offset="1"/>', '<GradientStop Color="#EAF1F9" Offset="1"/>', 'app gradient end'),
+    ('<GradientStop Color="#EAF3FF" Offset="1"/>', '<GradientStop Color="#E5F0FF" Offset="1"/>', 'ied hover'),
+    ('<GradientStop Color="#DCEAFF" Offset="1"/>', '<GradientStop Color="#D5E6FF" Offset="1"/>', 'ied selected'),
+    ('<GradientStop Color="#E4F7ED" Offset="1"/>', '<GradientStop Color="#DDF5E8" Offset="1"/>', 'ied connected'),
+]:
+    app = replace_once(app, old, new, label)
+
+app = replace_once(app,
+'''        <Style x:Key="SectionTitle" TargetType="TextBlock">\n            <Setter Property="FontSize" Value="16"/>\n            <Setter Property="FontWeight" Value="SemiBold"/>\n            <Setter Property="Foreground" Value="{StaticResource Ink}"/>\n        </Style>\n\n        <Style x:Key="Caption" TargetType="TextBlock">\n            <Setter Property="Foreground" Value="{StaticResource Muted}"/>\n            <Setter Property="FontSize" Value="12.5"/>\n        </Style>\n''',
+'''        <!-- Compact P2 typography scale: restrained sizes for dense engineering workstations. -->\n        <Style x:Key="SectionTitle" TargetType="TextBlock">\n            <Setter Property="FontSize" Value="15"/>\n            <Setter Property="FontWeight" Value="SemiBold"/>\n            <Setter Property="Foreground" Value="{StaticResource Ink}"/>\n            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>\n        </Style>\n\n        <Style x:Key="BodyText" TargetType="TextBlock">\n            <Setter Property="FontSize" Value="12.2"/>\n            <Setter Property="Foreground" Value="{StaticResource Ink}"/>\n            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>\n        </Style>\n\n        <Style x:Key="Caption" TargetType="TextBlock">\n            <Setter Property="Foreground" Value="{StaticResource Muted}"/>\n            <Setter Property="FontSize" Value="11.8"/>\n            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>\n        </Style>\n\n        <Style x:Key="MicroLabel" TargetType="TextBlock">\n            <Setter Property="Foreground" Value="{StaticResource Muted}"/>\n            <Setter Property="FontSize" Value="10.6"/>\n            <Setter Property="FontWeight" Value="SemiBold"/>\n            <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>\n        </Style>\n''', "typography scale")
+
+# Geometry-stable micro interactions: remove scale animations from standard buttons.
+primary_old = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentDeep}"/>\n                                <Trigger.EnterActions>\n                                    <BeginStoryboard>\n                                        <Storyboard>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.018" Duration="0:0:0.14">\n                                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>\n                                            </DoubleAnimation>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.018" Duration="0:0:0.14">\n                                                <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>\n                                            </DoubleAnimation>\n                                        </Storyboard>\n                                    </BeginStoryboard>\n                                </Trigger.EnterActions>\n                                <Trigger.ExitActions>\n                                    <BeginStoryboard>\n                                        <Storyboard>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.17"/>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.17"/>\n                                        </Storyboard>\n                                    </BeginStoryboard>\n                                </Trigger.ExitActions>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.94"/>\n                                <Setter TargetName="Chrome" Property="RenderTransform">\n                                    <Setter.Value><ScaleTransform ScaleX="0.982" ScaleY="0.982"/></Setter.Value>\n                                </Setter>\n                            </Trigger>'''
+primary_new = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource AccentDeep}"/>\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.96"/>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.84"/>\n                            </Trigger>'''
+app = replace_once(app, primary_old, primary_new, "primary geometry-stable motion")
+
+soft_old = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="#E1EAFE"/>\n                                <Trigger.EnterActions>\n                                    <BeginStoryboard>\n                                        <Storyboard>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.012" Duration="0:0:0.14"/>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.012" Duration="0:0:0.14"/>\n                                        </Storyboard>\n                                    </BeginStoryboard>\n                                </Trigger.EnterActions>\n                                <Trigger.ExitActions>\n                                    <BeginStoryboard>\n                                        <Storyboard>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.17"/>\n                                            <DoubleAnimation Storyboard.TargetName="Chrome" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.17"/>\n                                        </Storyboard>\n                                    </BeginStoryboard>\n                                </Trigger.ExitActions>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.94"/>\n                                <Setter TargetName="Chrome" Property="RenderTransform">\n                                    <Setter.Value><ScaleTransform ScaleX="0.984" ScaleY="0.984"/></Setter.Value>\n                                </Setter>\n                            </Trigger>'''
+soft_new = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="#E1EAFE"/>\n                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource BorderStrong}"/>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.82"/>\n                            </Trigger>'''
+app = replace_once(app, soft_old, soft_new, "soft geometry-stable motion")
+
+icon_old = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF"/>\n                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#9CB8E8"/>\n                                <Setter TargetName="Chrome" Property="RenderTransform">\n                                    <Setter.Value><ScaleTransform ScaleX="1.06" ScaleY="1.06"/></Setter.Value>\n                                </Setter>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="RenderTransform">\n                                    <Setter.Value><ScaleTransform ScaleX="0.94" ScaleY="0.94"/></Setter.Value>\n                                </Setter>\n                            </Trigger>'''
+icon_new = '''                            <Trigger Property="IsMouseOver" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="#FFFFFF"/>\n                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#8EAFE3"/>\n                            </Trigger>\n                            <Trigger Property="IsPressed" Value="True">\n                                <Setter TargetName="Chrome" Property="Background" Value="#E7F0FF"/>\n                                <Setter TargetName="Chrome" Property="Opacity" Value="0.82"/>\n                            </Trigger>'''
+app = replace_once(app, icon_old, icon_new, "icon geometry-stable motion")
+app_path.write_text(app, encoding="utf-8")
+
+main_path = Path("MainWindow.xaml")
+main = main_path.read_text(encoding="utf-8")
+main = main.replace('Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="15" Padding="10,6"', 'Background="{StaticResource PremiumSurface}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="15" Padding="10,6"')
+main = replace_once(main,
+'''                                    <TextBlock Text="IED Explorer" FontSize="15.5" FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>''',
+'''                                    <TextBlock Text="IED Explorer" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>''', "IED Explorer typography")
+main = replace_once(main,
+'''                                                    <TextBlock Text="{Binding Name}" FontSize="13.2" FontWeight="SemiBold"\n                                                               Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis"''',
+'''                                                    <TextBlock Text="{Binding Name}" FontSize="12.8" FontWeight="SemiBold"\n                                                               Foreground="{StaticResource Ink}" TextOptions.TextFormattingMode="Display" TextTrimming="CharacterEllipsis"''', "IED name typography")
+main = replace_once(main,
+'''                                                    <TextBlock Text="{Binding EndpointText}" FontSize="11.6"\n                                                               Foreground="{StaticResource Muted}" Margin="0,2,0,0"''',
+'''                                                    <TextBlock Text="{Binding EndpointText}" FontSize="11.1"\n                                                               Foreground="{StaticResource Muted}" TextOptions.TextFormattingMode="Display" Margin="0,2,0,0"''', "endpoint typography")
+main = main.replace('Background="#E8F8EF" BorderBrush="#9DD8B7"', 'Background="#E5F7ED" BorderBrush="#8CCDA8"')
+main = main.replace('Fill="#16A34A"', 'Fill="{StaticResource Success}"')
+main = main.replace('Foreground="#107A43"', 'Foreground="{StaticResource Success}"')
+main_path.write_text(main, encoding="utf-8")
+
+# Release metadata.
+csproj = Path("ArIED61850Tester.csproj")
+text = csproj.read_text(encoding="utf-8").replace("1.6.12", "1.6.13")
+csproj.write_text(text, encoding="utf-8")
+publish = Path("scripts/publish-windows-portable.ps1")
+text = publish.read_text(encoding="utf-8").replace("1.6.12", "1.6.13")
+publish.write_text(text, encoding="utf-8")
+workflow = Path(".github/workflows/build.yml")
+text = workflow.read_text(encoding="utf-8").replace("Verify premium P0 and P1 UX invariants", "Verify premium P0, P1 and P2 UX invariants").replace("-Version 1.6.12", "-Version 1.6.13")
+needle = '''          if ($main -notmatch 'LucideRefreshCw' -or $main -notmatch 'HorizontalAlignment="Center"') {\n            throw "Premium Lucide icon or centered IED card layout invariant was not found."\n          }\n'''
+extra = needle + '''          if ($app -notmatch 'x:Key="SurfaceColor"' -or\n              $app -notmatch 'x:Key="BorderStrongColor"' -or\n              $app -notmatch 'x:Key="BodyText"' -or\n              $app -notmatch 'x:Key="MicroLabel"') {\n            throw "P2 semantic theme tokens or compact typography scale were not found."\n          }\n          if ($app -match 'To="1\\.018"' -or $app -match 'To="1\\.012"' -or $app -match 'ScaleX="1\\.06" ScaleY="1\\.06"') {\n            throw "P2 standard button interactions must remain geometry-stable; hover/press may not scale controls."\n          }\n'''
+if needle not in text:
+    raise SystemExit("P2 workflow gate anchor not found")
+text = text.replace(needle, extra, 1)
+workflow.write_text(text, encoding="utf-8")
+
+print("Premium P2 transform applied successfully.")
