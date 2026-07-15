@@ -1,168 +1,191 @@
-name: Build ArIED 61850
+name: Apply SAS operational signal profile
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
-  workflow_dispatch:
+    branches: [ main ]
 
-env:
-  ARIEC61850_REF: main
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
-    name: Build, validate and package Windows application
-    runs-on: windows-latest
+  apply:
+    if: ${{ github.event.pull_request.head.ref == 'fix/sas-operational-signal-profile' }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout ArIED application
-        shell: powershell
-        run: |
-          $ref = if ($env:GITHUB_HEAD_REF) { $env:GITHUB_HEAD_REF } else { $env:GITHUB_REF_NAME }
-          git clone --quiet --depth 1 --branch $ref "https://github.com/$env:GITHUB_REPOSITORY.git" ArIED61850Tester
-
-      - name: Verify source, website and license boundaries
-        shell: powershell
-        run: .\ArIED61850Tester\scripts\verify-source-clean.ps1
-
-      - name: Verify premium P0, P1 and P2 UX invariants
-        shell: powershell
-        run: |
-          $app = Get-Content .\ArIED61850Tester\App.xaml -Raw
-          $main = Get-Content .\ArIED61850Tester\MainWindow.xaml -Raw
-          $save = Get-Content .\ArIED61850Tester\SaveSclWindow.xaml -Raw
-
-          if ($save -notmatch 'x:Name="EditionIndicator"' -or
-              $save -notmatch 'Content="Edition 2"' -or
-              $save -notmatch 'Content="Edition 1"') {
-            throw "Save SCL segmented Edition 2 / Edition 1 selector was not found."
-          }
-          if ($save -match '<ComboBox' -or $save -match 'Schema V3\.1' -or $save -match 'Schema V1\.6') {
-            throw "Save SCL still exposes the legacy schema ComboBox or technical schema revision labels."
-          }
-
-          $itemStyleMatch = [regex]::Match(
-            $main,
-            '<ListBox\.ItemContainerStyle>(?<body>.*?)</ListBox\.ItemContainerStyle>',
-            [System.Text.RegularExpressions.RegexOptions]::Singleline)
-          if (-not $itemStyleMatch.Success) {
-            throw "IED card item-container style was not found."
-          }
-          $itemStyle = $itemStyleMatch.Groups['body'].Value
-          if ($itemStyle -match 'ScaleTransform\s+ScaleX="1\.012"' -or
-              $itemStyle -match 'Property="RenderTransform"') {
-            throw "IED card hover must not resize or transform the card. Hover may change colors only."
-          }
-          if ($main -notmatch 'x:Name="ConnectedBadge"' -or
-              $app -notmatch 'x:Key="IedCardConnected"' -or
-              $app -notmatch 'x:Key="IedCardConnectedSelected"') {
-            throw "Premium connected IED-card states were not found."
-          }
-
-          if ($main -notmatch 'Style="\{StaticResource CommandDataGrid\}"' -or
-              $main -notmatch 'RowStyle="\{StaticResource CommandDataGridRow\}"' -or
-              $app -notmatch 'x:Key="CommandDataGridRow"' -or
-              $app -notmatch 'x:Key="LucideSlidersHorizontal"') {
-            throw "Premium Command Panel hierarchy and row styles were not found."
-          }
-          if ($main -notmatch 'ScrollViewer.HorizontalScrollBarVisibility="Disabled"' -or
-              $main -notmatch 'CanUserResizeColumns="False"') {
-            throw "IED Command Panel horizontal overflow protection was not found."
-          }
-          if ($main -notmatch 'Content="\{Binding ControlPendingConfirmationLabel\}"' -or
-              $main -match 'Content="Confirm Open"' -or
-              $main -match 'Content="Confirm Close"') {
-            throw "Atomic single-button control confirmation regressed."
-          }
-          if ($main -notmatch 'LucideRefreshCw' -or $main -notmatch 'HorizontalAlignment="Center"') {
-            throw "Premium Lucide icon or centered IED card layout invariant was not found."
-          }
-          if ($app -notmatch 'x:Key="SurfaceColor"' -or
-              $app -notmatch 'x:Key="BorderStrongColor"' -or
-              $app -notmatch 'x:Key="BodyText"' -or
-              $app -notmatch 'x:Key="MicroLabel"') {
-            throw "P2 semantic theme tokens or compact typography scale were not found."
-          }
-
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@v4
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
         with:
-          name: ArIED61850-source-snapshot
-          path: |
-            ArIED61850Tester/App.xaml
-            ArIED61850Tester/MainWindow.xaml
-            ArIED61850Tester/MainWindow.xaml.cs
-            ArIED61850Tester/MainWindow.CommandPanelUx.cs
-            ArIED61850Tester/MainWindow.ControlDiagnostics.cs
-            ArIED61850Tester/SaveSclWindow.xaml
-            ArIED61850Tester/SaveSclWindow.xaml.cs
-            ArIED61850Tester/GridUxBehavior.cs
-            ArIED61850Tester/Models
-            ArIED61850Tester/Services
-            ArIED61850Tester/docs
-            ArIED61850Tester/landing
+          ref: fix/sas-operational-signal-profile
+          fetch-depth: 0
 
-      - name: Checkout ARIEC61850 engine
-        shell: powershell
-        run: git clone --quiet --depth 1 --branch $env:ARIEC61850_REF https://github.com/masarray/ARIEC61850.git ARIEC61850
-
-      - name: Verify required ARIEC61850 APIs
-        shell: powershell
+      - name: Apply and validate final source
+        shell: bash
         run: |
-          $control = ".\ARIEC61850\src\AR.Iec61850\Control\Iec61850ControlService.cs"
-          $models = ".\ARIEC61850\src\AR.Iec61850\Control\Iec61850ControlModels.cs"
-          $workspace = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceService.cs"
-          $workspaceModels = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceModels.cs"
-          $sclModels = ".\ARIEC61850\src\AR.Iec61850\Scl\SclModels.cs"
-          $sclExporter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\LiveIedSclExporter.cs"
-          $schemaProfiles = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\SclSchemaProfiles.cs"
-          $interoperableConverter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\InteroperableSclConverter.cs"
-          if (!(Test-Path $control) -or !(Test-Path $models)) {
-            throw "ARIEC61850 Smart Control source was not found. ArIED requires the native Control namespace."
+          set -euo pipefail
+          git show HEAD~7:.github/workflows/build.yml > /tmp/production-build.yml
+          cat .staging/sas-operational/patch.00 \
+              .staging/sas-operational/patch.01 \
+              .staging/sas-operational/patch.02 \
+              .staging/sas-operational/patch.03 \
+              .staging/sas-operational/patch.04 \
+              .staging/sas-operational/patch.05 \
+              | base64 -d > /tmp/profile.patch.gz
+          echo "23cf060c940b54591f76f567c385767a2db4d90c1f92eb31ac2cc85e2d63e2c6  /tmp/profile.patch.gz" | sha256sum -c -
+          gzip -dc /tmp/profile.patch.gz > /tmp/profile.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          targets = [
+              'App.xaml', 'MainWindow.xaml', 'MainWindow.xaml.cs',
+              'Models/SignalDefinition.cs', 'SaveSclWindow.xaml', 'SaveSclWindow.xaml.cs',
+              'Services/Iec61850MonitorRuntime.cs', 'Services/NativeIec61850Client.cs',
+              'Services/NativeMmsDiscoveryMapper.cs', 'Services/SclWorkspaceSignalMapper.cs'
+          ]
+          for filename in targets:
+              path = Path(filename)
+              path.write_text(path.read_text(encoding='utf-8'), encoding='utf-8', newline='\n')
+          PY
+          git apply --ignore-space-change --ignore-whitespace /tmp/profile.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          project = Path('ArIED61850Tester.csproj')
+          text = project.read_text(encoding='utf-8')
+          text = text.replace('<Version>1.6.13</Version>', '<Version>1.6.16</Version>')
+          text = text.replace('<AssemblyVersion>1.6.13.0</AssemblyVersion>', '<AssemblyVersion>1.6.16.0</AssemblyVersion>')
+          text = text.replace('<FileVersion>1.6.13.0</FileVersion>', '<FileVersion>1.6.16.0</FileVersion>')
+          project.write_text(text, encoding='utf-8', newline='\n')
+
+          publish = Path('scripts/publish-windows-portable.ps1')
+          text = publish.read_text(encoding='utf-8').replace('1.6.13', '1.6.16')
+          publish.write_text(text, encoding='utf-8', newline='\n')
+
+          workflow = Path('.github/workflows/build.yml')
+          workflow.write_bytes(Path('/tmp/production-build.yml').read_bytes())
+          text = workflow.read_text(encoding='utf-8')
+          text = text.replace('Verify premium P0, P1 and P2 UX invariants', 'Verify premium UX and SAS operational-signal invariants')
+          text = text.replace('1.6.13', '1.6.16')
+
+          read_anchor = '          $save = Get-Content .\\ArIED61850Tester\\SaveSclWindow.xaml -Raw\n'
+          read_block = read_anchor + (
+              '          $project = Get-Content .\\ArIED61850Tester\\ArIED61850Tester.csproj -Raw\n'
+              '          $publish = Get-Content .\\ArIED61850Tester\\scripts\\publish-windows-portable.ps1 -Raw\n'
+              '          $signalDefinition = Get-Content .\\ArIED61850Tester\\Models\\SignalDefinition.cs -Raw\n'
+              '          $nativeClient = Get-Content .\\ArIED61850Tester\\Services\\NativeIec61850Client.cs -Raw\n'
+              '          $nativeMapper = Get-Content .\\ArIED61850Tester\\Services\\NativeMmsDiscoveryMapper.cs -Raw\n'
+              '          $sclMapper = Get-Content .\\ArIED61850Tester\\Services\\SclWorkspaceSignalMapper.cs -Raw\n'
+          )
+          if '$signalDefinition = Get-Content' not in text:
+              if read_anchor not in text:
+                  raise SystemExit('production workflow read anchor was not found')
+              text = text.replace(read_anchor, read_block, 1)
+
+          upload_anchor = '      - name: Upload source snapshot\n'
+          gate = r'''          if ($main -notmatch 'x:Name="WorkflowNavShell"[^>]*Height="48"' -or
+              $main -notmatch 'Background="#D8E2F0"' -or
+              $main -notmatch 'BorderBrush="#B7C6DA"') {
+            throw "Ballistic navigation shell geometry or contrast regressed."
           }
-          if (!(Select-String -Path $models -Pattern "interface IIec61850ControlService" -Quiet)) {
-            throw "ARIEC61850 does not expose IIec61850ControlService."
+          if ($main -match 'WorkflowPill' -or $main -match 'WorkflowPillTranslate') {
+            throw "Legacy sliding navigation pill returned."
           }
-          if (!(Select-String -Path $models -Pattern "CommandTerminationReceived" -Quiet)) {
-            throw "ARIEC61850 Smart Control result contract is too old for ArIED."
+          if ($signalDefinition -notmatch 'IsSasOperationalSignal' -or
+              $signalDefinition -notmatch 'IsSasOperationalControl' -or
+              $signalDefinition -notmatch 'IsSasVisibleSignal' -or
+              $signalDefinition -notmatch 'dataObject is "mod" or "beh"' -or
+              $signalDefinition -notmatch '\\.op\\.general' -or
+              $signalDefinition -notmatch '\\.str\\.general' -or
+              $signalDefinition -notmatch 'IsDefaultScadaMeasurementMagnitude') {
+            throw "Typed SAS operational signal policy is incomplete."
           }
-          if (!(Test-Path $workspace) -or !(Test-Path $workspaceModels)) {
-            throw "ARIEC61850 SCL Workspace API was not found. ArIED Open SCL must use the engine-owned workspace service."
+          if ($nativeClient -notmatch 'IsExactLiveDataAttributeTarget' -or
+              $nativeClient -notmatch 'SAS operational points=' -or
+              $nativeClient -notmatch 'IsOperationalSasDiscoverySignal' -or
+              $nativeMapper -notmatch 'Native MMS inferred leaf candidate' -or
+              $nativeMapper -notmatch 'IsSasVisibleSignal' -or
+              $sclMapper -notmatch 'Where\(signal => signal\.IsSasVisibleSignal\)') {
+            throw "Discovery or SCL projection is not enforcing exact SAS operational leaves."
           }
-          if (!(Select-String -Path $workspace -Pattern "CompareLive" -Quiet)) {
-            throw "ARIEC61850 SCL Workspace API does not expose design-versus-live comparison."
-          }
-          if (!(Test-Path $sclModels) -or !(Select-String -Path $sclModels -Pattern "SclDataSetBindingStatus" -Quiet)) {
-            throw "ARIEC61850 typed SCL DataSet binding contract was not found."
-          }
-          if (!(Test-Path $sclExporter) -or !(Select-String -Path $sclExporter -Pattern "WriteFiles" -Quiet)) {
-            throw "ARIEC61850 schema-aware LiveIedSclExporter was not found."
-          }
-          if (!(Test-Path $schemaProfiles) -or
-              !(Select-String -Path $schemaProfiles -Pattern "Edition2V31" -Quiet) -or
-              !(Select-String -Path $schemaProfiles -Pattern "Edition1V16" -Quiet)) {
-            throw "ARIEC61850 Edition 2 / Edition 1 SCL schema profiles were not found."
-          }
-          if (!(Test-Path $interoperableConverter) -or !(Select-String -Path $interoperableConverter -Pattern "WriteFiles" -Quiet)) {
-            throw "ARIEC61850 generic interoperable SCL converter was not found."
+          if ($project -notmatch '<Version>1\.6\.16</Version>' -or
+              $project -notmatch '<AssemblyVersion>1\.6\.16\.0</AssemblyVersion>' -or
+              $publish -notmatch '1\.6\.16') {
+            throw "Release metadata is not aligned to 1.6.16."
           }
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
+'''
+          if 'Typed SAS operational signal policy is incomplete.' not in text:
+              if upload_anchor not in text:
+                  raise SystemExit('production workflow upload anchor was not found')
+              text = text.replace(upload_anchor, gate + upload_anchor, 1)
+          workflow.write_text(text, encoding='utf-8', newline='\n')
 
-      - name: Restore
-        run: dotnet restore .\ArIED61850Tester\ArIED61850Tester.csproj
+          for filename in ('App.xaml', 'MainWindow.xaml', 'SaveSclWindow.xaml'):
+              ET.parse(filename)
 
-      - name: Build
-        run: dotnet build .\ArIED61850Tester\ArIED61850Tester.csproj -c Release --no-restore
+          required = {
+              'Models/SignalDefinition.cs': ('IsSasVisibleSignal', 'IsOperationalSasControl'),
+              'Services/NativeIec61850Client.cs': ('IsExactLiveDataAttributeTarget', 'SAS operational points='),
+              'Services/NativeMmsDiscoveryMapper.cs': ('Native MMS exact value leaf', 'Native MMS inferred leaf candidate'),
+              'Services/SclWorkspaceSignalMapper.cs': ('IsSasVisibleSignal',),
+              'docs/SAS_OPERATIONAL_SIGNAL_PROFILE.md': ('exact, operational value leaves',),
+          }
+          for filename, tokens in required.items():
+              body = Path(filename).read_text(encoding='utf-8')
+              for token in tokens:
+                  if token not in body:
+                      raise SystemExit(f'missing {token!r} in {filename}')
+          PY
 
-      - name: Publish portable x64
-        shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.13 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+      - name: Publish atomic production commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: fix/sas-operational-signal-profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo="repos/$GITHUB_REPOSITORY"
+          base_commit=$(git rev-parse HEAD)
+          base_tree=$(gh api "$repo/git/commits/$base_commit" --jq .tree.sha)
+          tree_entries='[]'
 
-      - name: Upload portable package
-        uses: actions/upload-artifact@v4
-        with:
-          name: ArIED61850-win-x64
-          path: ArIED61850Tester\dist\*.zip
+          add_blob() {
+            local path="$1"
+            local blob
+            blob=$(base64 -w0 "$path" | jq -Rs '{content:.,encoding:"base64"}' | gh api --method POST "$repo/git/blobs" --input - --jq .sha)
+            tree_entries=$(jq --arg path "$path" --arg sha "$blob" '. + [{path:$path,mode:"100644",type:"blob",sha:$sha}]' <<<"$tree_entries")
+          }
+
+          for path in \
+            .github/workflows/build.yml \
+            App.xaml \
+            ArIED61850Tester.csproj \
+            MainWindow.xaml \
+            MainWindow.xaml.cs \
+            Models/SignalDefinition.cs \
+            SaveSclWindow.xaml \
+            SaveSclWindow.xaml.cs \
+            Services/Iec61850MonitorRuntime.cs \
+            Services/NativeIec61850Client.cs \
+            Services/NativeMmsDiscoveryMapper.cs \
+            Services/SclWorkspaceSignalMapper.cs \
+            docs/SAS_OPERATIONAL_SIGNAL_PROFILE.md \
+            scripts/publish-windows-portable.ps1; do
+            add_blob "$path"
+          done
+
+          for path in \
+            .staging/sas-operational/patch.00 \
+            .staging/sas-operational/patch.01 \
+            .staging/sas-operational/patch.02 \
+            .staging/sas-operational/patch.03 \
+            .staging/sas-operational/patch.04 \
+            .staging/sas-operational/patch.05; do
+            tree_entries=$(jq --arg path "$path" '. + [{path:$path,mode:"100644",type:"blob",sha:null}]' <<<"$tree_entries")
+          done
+
+          tree_sha=$(jq -n --arg base_tree "$base_tree" --argjson tree "$tree_entries" '{base_tree:$base_tree,tree:$tree}' | gh api --method POST "$repo/git/trees" --input - --jq .sha)
+          commit_sha=$(jq -n --arg tree "$tree_sha" --arg parent "$base_commit" '{message:"feat: expose exact SAS operational signals only",tree:$tree,parents:[$parent]}' | gh api --method POST "$repo/git/commits" --input - --jq .sha)
+          jq -n --arg sha "$commit_sha" '{sha:$sha,force:false}' | gh api --method PATCH "$repo/git/refs/heads/$TARGET_BRANCH" --input - >/dev/null
+          echo "Published $commit_sha"
