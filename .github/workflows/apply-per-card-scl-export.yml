@@ -22,6 +22,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin main
+          git checkout origin/main -- \
+            MainWindow.xaml \
+            MainWindow.xaml.cs \
+            Models/MonitorModels.cs \
+            Services/NativeIec61850Client.cs \
+            Services/Iec61850MonitorRuntime.cs \
+            ArIED61850Tester.csproj \
+            scripts/publish-windows-portable.ps1
           rm -f SaveSclWindow.xaml SaveSclWindow.xaml.cs docs/SCL_EXPORT.md
           python3 - <<'PY'
           from pathlib import Path
