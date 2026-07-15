@@ -538,9 +538,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (sender is not Button button || !int.TryParse(button.Tag?.ToString(), out var index))
             return;
+
         index = Math.Clamp(index, 0, 3);
+        if (MainTabs.SelectedIndex == index)
+        {
+            PulseNavigationButton(button);
+            return;
+        }
+
+        // SelectionChanged owns the visual refresh. Avoid the old double update that
+        // animated both here and again after the tab selection changed.
         MainTabs.SelectedIndex = index;
-        UpdateNavigationVisuals(index, animate: true);
     }
 
     private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -563,27 +571,33 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateNavigationVisuals(int index, bool animate)
     {
-        if (WorkflowPillTranslate == null)
-            return;
-
-        var target = Math.Clamp(index, 0, 3) * 180d;
-        if (animate)
-        {
-            var animation = new DoubleAnimation(target, TimeSpan.FromMilliseconds(190))
-            {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            WorkflowPillTranslate.BeginAnimation(TranslateTransform.XProperty, animation);
-        }
-        else
-        {
-            WorkflowPillTranslate.BeginAnimation(TranslateTransform.XProperty, null);
-            WorkflowPillTranslate.X = target;
-        }
-
+        index = Math.Clamp(index, 0, 3);
         var buttons = new[] { NavExplorerButton, NavLiveButton, NavEventsButton, NavDiagnosticsButton };
+        var idleStyle = (Style)FindResource("BallisticNavButton");
+        var selectedStyle = (Style)FindResource("BallisticNavButtonSelected");
+
         for (var i = 0; i < buttons.Length; i++)
-            buttons[i].Foreground = i == index ? Brushes.White : new SolidColorBrush(Color.FromRgb(71, 84, 103));
+        {
+            buttons[i].BeginAnimation(OpacityProperty, null);
+            buttons[i].Opacity = 1d;
+            buttons[i].Style = i == index ? selectedStyle : idleStyle;
+        }
+
+        if (animate)
+            PulseNavigationButton(buttons[index]);
+    }
+
+    private static void PulseNavigationButton(Button button)
+    {
+        // One short opacity impulse replaces the old 190 ms shared sliding pill.
+        // It is compositing-only, does not reflow layout, and runs once per click.
+        button.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(0.76d, 1d, TimeSpan.FromMilliseconds(82))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            },
+            HandoffBehavior.SnapshotAndReplace);
     }
 
     private async Task<bool> ConnectAndConfigureDeviceAsync(

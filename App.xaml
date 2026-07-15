@@ -552,14 +552,19 @@
             </Setter>
         </Style>
 
-        <Style x:Key="SegmentedNavButton" TargetType="Button">
-            <Setter Property="Foreground" Value="#475467"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
+
+        <!-- Lightweight ballistic navigation: independent buttons snap state immediately.
+             No shared sliding pill, layout translation, or geometry animation is used. -->
+        <Style x:Key="BallisticNavButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#42526B"/>
+            <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderDefault}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="0"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="FontSize" Value="12.8"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}"/>
             <Setter Property="SnapsToDevicePixels" Value="True"/>
@@ -567,16 +572,36 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid SnapsToDevicePixels="True">
-                            <Border x:Name="HoverSurface" Background="Transparent" CornerRadius="18" Margin="2"/>
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"
+                            <Border x:Name="Chrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="13"/>
+                            <Border x:Name="InteractionSurface"
+                                    Background="Transparent"
+                                    BorderBrush="Transparent"
+                                    BorderThickness="1"
+                                    CornerRadius="13"
+                                    IsHitTestVisible="False"/>
+                            <ContentPresenter x:Name="Label"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"
                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="HoverSurface" Property="Background" Value="#55FFFFFF"/>
+                                <Setter TargetName="InteractionSurface" Property="Background" Value="#247AA7E8"/>
+                                <Setter TargetName="InteractionSurface" Property="BorderBrush" Value="#88AFC7E8"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter Property="Opacity" Value="0.78"/>
+                                <Setter TargetName="InteractionSurface" Property="Background" Value="#4874A8EA"/>
+                                <Setter TargetName="InteractionSurface" Property="BorderBrush" Value="#A16E9EE0"/>
+                                <Setter TargetName="Label" Property="Opacity" Value="0.80"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="InteractionSurface" Property="BorderBrush" Value="{StaticResource FocusRing}"/>
+                                <Setter TargetName="InteractionSurface" Property="BorderThickness" Value="2"/>
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Opacity" Value="0.45"/>
@@ -584,6 +609,20 @@
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BallisticNavButtonSelected"
+               TargetType="Button"
+               BasedOn="{StaticResource BallisticNavButton}">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource AccentGradient}"/>
+            <Setter Property="BorderBrush" Value="#7FAAFF"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.20" Color="#2563EB"/>
                 </Setter.Value>
             </Setter>
         </Style>

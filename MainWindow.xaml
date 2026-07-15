@@ -21,32 +21,24 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Border x:Name="WorkflowNavShell" Width="720" Height="42" HorizontalAlignment="Left"
-                    Background="#E3EAF4" BorderBrush="{StaticResource BorderDefault}" BorderThickness="1" CornerRadius="21" Padding="3" Effect="{StaticResource SoftShadow}">
-                <Grid x:Name="WorkflowNavGrid" ClipToBounds="True">
+            <Border x:Name="WorkflowNavShell" Width="640" Height="44" HorizontalAlignment="Left"
+                    Background="#E5EBF4" BorderBrush="{StaticResource BorderDefault}" BorderThickness="1"
+                    CornerRadius="16" Padding="3" Effect="{StaticResource SoftShadow}">
+                <Grid x:Name="WorkflowNavGrid">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Border x:Name="WorkflowPill" Grid.ColumnSpan="4" Width="172" Height="34"
-                            HorizontalAlignment="Left" VerticalAlignment="Center" CornerRadius="17"
-                            Background="{StaticResource Accent}" RenderTransformOrigin="0.5,0.5">
-                        <Border.RenderTransform>
-                            <TransformGroup>
-                                <ScaleTransform x:Name="WorkflowPillScale" ScaleX="1" ScaleY="1"/>
-                                <TranslateTransform x:Name="WorkflowPillTranslate" X="0"/>
-                            </TransformGroup>
-                        </Border.RenderTransform>
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.18" Color="#2563EB"/>
-                        </Border.Effect>
-                    </Border>
-                    <Button x:Name="NavExplorerButton" Grid.Column="0" Content="IEC 61850 Explorer" Tag="0" Click="NavButton_Click" Style="{StaticResource SegmentedNavButton}"/>
-                    <Button x:Name="NavLiveButton" Grid.Column="1" Content="Live Monitor" Tag="1" Click="NavButton_Click" Style="{StaticResource SegmentedNavButton}"/>
-                    <Button x:Name="NavEventsButton" Grid.Column="2" Content="Event Log" Tag="2" Click="NavButton_Click" Style="{StaticResource SegmentedNavButton}"/>
-                    <Button x:Name="NavDiagnosticsButton" Grid.Column="3" Tag="3" Click="NavButton_Click" Style="{StaticResource SegmentedNavButton}">
+                    <Button x:Name="NavExplorerButton" Grid.Column="0" Content="IEC 61850 Explorer" Tag="0"
+                            Click="NavButton_Click" Style="{StaticResource BallisticNavButtonSelected}"/>
+                    <Button x:Name="NavLiveButton" Grid.Column="1" Content="Live Monitor" Tag="1"
+                            Click="NavButton_Click" Style="{StaticResource BallisticNavButton}"/>
+                    <Button x:Name="NavEventsButton" Grid.Column="2" Content="Event Log" Tag="2"
+                            Click="NavButton_Click" Style="{StaticResource BallisticNavButton}"/>
+                    <Button x:Name="NavDiagnosticsButton" Grid.Column="3" Tag="3"
+                            Click="NavButton_Click" Style="{StaticResource BallisticNavButton}">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="Diagnostics" VerticalAlignment="Center"/>
                             <Border Visibility="{Binding DiagnosticsAlertVisibility}"
