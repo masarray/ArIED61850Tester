@@ -1,0 +1,77 @@
+name: Apply per-card SCL export
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.event.pull_request.head.ref == 'feat/per-card-scl-export' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/per-card-scl-export
+          fetch-depth: 0
+
+      - name: Apply reviewed source transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64
+          import zlib
+
+          payload = Path('.staging/apply_scl_export.py.zlib.b64').read_text(encoding='utf-8').strip()
+          source = zlib.decompress(base64.b64decode(payload)).decode('utf-8')
+          exec(compile(source, 'apply_scl_export.py', 'exec'))
+          PY
+
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          ET.parse('MainWindow.xaml')
+          ET.parse('SaveSclWindow.xaml')
+          PY
+
+          grep -q 'Click="IedSaveScl_Click"' MainWindow.xaml
+          grep -q 'Click="IedRemove_Click"' MainWindow.xaml
+          grep -q 'HorizontalAlignment="Right" VerticalAlignment="Top"' MainWindow.xaml
+          grep -q 'InteroperableSclConverter.WriteFiles' MainWindow.xaml.cs
+          grep -q 'LiveIedSclExporter.WriteFiles' MainWindow.xaml.cs
+          grep -q 'Edition2V31' SaveSclWindow.xaml.cs
+          grep -q 'Edition1V16' SaveSclWindow.xaml.cs
+          grep -q 'LiveDiscoveryModel' Models/MonitorModels.cs
+          grep -q 'LastLiveModel' Services/NativeIec61850Client.cs
+          grep -q '<Version>1.6.10</Version>' ArIED61850Tester.csproj
+          grep -q 'Content="{Binding ControlPendingConfirmationLabel}"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Open"' MainWindow.xaml
+          ! grep -q 'Content="Confirm Close"' MainWindow.xaml
+
+      - name: Commit production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            MainWindow.xaml \
+            MainWindow.xaml.cs \
+            Models/MonitorModels.cs \
+            Services/NativeIec61850Client.cs \
+            Services/Iec61850MonitorRuntime.cs \
+            SaveSclWindow.xaml \
+            SaveSclWindow.xaml.cs \
+            docs/SCL_EXPORT.md \
+            ArIED61850Tester.csproj \
+            scripts/publish-windows-portable.ps1
+          if git diff --cached --quiet; then
+            echo "Production source is already current."
+            exit 0
+          fi
+          git commit -m "feat: add per-card interoperable SCL export"
+          git push origin HEAD:feat/per-card-scl-export
