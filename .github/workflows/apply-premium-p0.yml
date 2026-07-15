@@ -18,17 +18,30 @@ jobs:
           ref: fix/premium-p0-ui
           fetch-depth: 0
 
+      - name: Assemble premium source bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .staging/premium-p0/part-* > .staging/premium-p0-assembled.zlib.b64
+          wc -c .staging/premium-p0-assembled.zlib.b64
+          sha256sum .staging/premium-p0-assembled.zlib.b64
+
+      - name: Upload assembled bundle evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: premium-p0-assembled-bundle
+          path: .staging/premium-p0-assembled.zlib.b64
+          if-no-files-found: error
+
       - name: Decode and validate premium source
         shell: bash
         run: |
           set -euo pipefail
-          cat .staging/premium-p0/part-* > /tmp/p0-premium-bundle.zlib.b64
-
           python3 - <<'PY'
           from pathlib import Path
           import base64, hashlib, json, zlib
 
-          payload = Path('/tmp/p0-premium-bundle.zlib.b64').read_text(encoding='utf-8').strip()
+          payload = Path('.staging/premium-p0-assembled.zlib.b64').read_text(encoding='utf-8').strip()
           compressed = base64.b64decode(payload, validate=True)
           digest = hashlib.sha256(compressed).hexdigest()
           expected_digest = '34d0b9930f3dcebc8bdb8027225c17dc250e98d4cfabf59ea1639c80c4b8fe86'
