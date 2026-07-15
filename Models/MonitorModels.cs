@@ -1,3 +1,4 @@
+using AR.Iec61850.Discovery;
 using AR.Iec61850.Scl.Workspace;
 
 namespace ArIED61850Tester.Models;
@@ -31,6 +32,7 @@ public sealed class Iec61850MonitorDevice : ObservableObject
     private string _busyTitle = "Discovering IEC 61850 IED";
     private int _unreadEventCount;
     private SclIedWorkspace? _sclWorkspace;
+    private LiveIedModelDiscoveryDocument? _liveDiscoveryModel;
     private SclLiveModelComparisonResult? _sclComparison;
     private string _sclSourcePath = string.Empty;
     private string _sclSourceSha256 = string.Empty;
@@ -50,6 +52,17 @@ public sealed class Iec61850MonitorDevice : ObservableObject
         {
             if (ReferenceEquals(_sclWorkspace, value)) return;
             _sclWorkspace = value;
+            RefreshComputed();
+        }
+    }
+
+    public LiveIedModelDiscoveryDocument? LiveDiscoveryModel
+    {
+        get => _liveDiscoveryModel;
+        set
+        {
+            if (ReferenceEquals(_liveDiscoveryModel, value)) return;
+            _liveDiscoveryModel = value;
             RefreshComputed();
         }
     }
@@ -385,6 +398,14 @@ public sealed class Iec61850MonitorDevice : ObservableObject
     public bool CanPlayAction => !IsBusy && (!IsConnected || (!IsMonitoring && SelectedLiveSignalCount > 0));
     public bool CanStopAction => !IsBusy && (IsConnected || IsMonitoring);
     public bool CanRescan => !IsBusy && !IsMonitoring;
+    public bool CanSaveScl => !IsBusy && (SclWorkspace != null || LiveDiscoveryModel != null);
+    public string SaveSclToolTip => SclWorkspace != null
+        ? $"Save {Name} from the opened SCL design model"
+        : LiveDiscoveryModel != null
+            ? $"Save {Name} from the last successful live MMS discovery"
+            : HasDiscoveryCache
+                ? $"Run Re-scan for {Name} to capture a complete live model before saving SCL"
+                : $"Open SCL or complete live discovery for {Name} before saving";
     public string CacheStateText => HasSclDesignModel
         ? $"SCL design model • {SignalCount:N0} signals"
         : HasDiscoveryCache
@@ -518,6 +539,8 @@ public sealed class Iec61850MonitorDevice : ObservableObject
         Raise(nameof(CanPlayAction));
         Raise(nameof(CanStopAction));
         Raise(nameof(CanRescan));
+        Raise(nameof(CanSaveScl));
+        Raise(nameof(SaveSclToolTip));
         Raise(nameof(CacheStateText));
         Raise(nameof(HasSclDesignModel));
         Raise(nameof(RequiresEndpointBinding));

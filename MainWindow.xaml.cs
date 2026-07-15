@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using AR.Iec61850.Scl.Export;
 using AR.Iec61850.Scl.Workspace;
 using ArIED61850Tester.Models;
 using ArIED61850Tester.Services;
@@ -1350,6 +1351,162 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await ConnectAndConfigureDeviceAsync(device, openWizard: false);
     }
 
+    private void IedSaveScl_Click(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetDeviceFromButton(sender, out var device) || device.IsBusy)
+            return;
+
+        var model = device.SclWorkspace?.DesignModel ?? device.LiveDiscoveryModel;
+        if (model == null)
+        {
+            SetStatus(device.HasDiscoveryCache
+                ? $"{device.Name}: run Re-scan to capture a complete live model before saving SCL."
+                : $"{device.Name}: open SCL or complete live discovery before saving SCL.");
+            return;
+        }
+
+        SelectedDevice = device;
+        var sourceDescription = device.SclWorkspace != null
+            ? "Opened SCL design model"
+            : "Last successful live MMS discovery";
+        var schemaDialog = new SaveSclWindow(device.Name, sourceDescription)
+        {
+            Owner = this
+        };
+        if (schemaDialog.ShowDialog() != true)
+            return;
+
+        var schema = schemaDialog.ViewModel.SelectedSchemaProfile;
+        var sourceSuffix = device.SclWorkspace != null ? "interoperable" : "discovered";
+        var editionSuffix = schema.IsEdition2 ? "ed2" : "ed1";
+        var dialog = new SaveFileDialog
+        {
+            Title = $"Save {device.Name} — {schema.DisplayName}",
+            Filter = schema.IsEdition2
+                ? "Edition 2 IID file (*.iid)|*.iid|All files (*.*)|*.*"
+                : "Edition 1 ICD file (*.icd)|*.icd|All files (*.*)|*.*",
+            DefaultExt = schema.DefaultExtension,
+            AddExtension = true,
+            FileName = $"{SafeSclFileStem(device.Name)}-{sourceSuffix}-{editionSuffix}{schema.DefaultExtension}"
+        };
+        if (dialog.ShowDialog(this) != true)
+            return;
+
+        try
+        {
+            if (device.SclWorkspace != null &&
+                schema.IsEdition2 &&
+                !string.IsNullOrWhiteSpace(device.SclSourcePath) &&
+                File.Exists(device.SclSourcePath))
+            {
+                SaveOpenedSclAsGenericEdition2(device, dialog.FileName);
+                return;
+            }
+
+            SaveTypedModelAsScl(device, model, sourceDescription, schema, dialog.FileName);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or ArgumentException)
+        {
+            AddLog("ERROR", "SCL Export", $"{device.Name}: {ex.Message}");
+            MarkDiagnosticAlert();
+            SetStatus($"{device.Name}: SCL export failed. Diagnostics is marked with !.");
+            MessageBox.Show(this, ex.Message, "Save SCL", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        catch (Exception ex)
+        {
+            AddLog("ERROR", "SCL Export", $"{device.Name}: unexpected export failure: {ex}");
+            MarkDiagnosticAlert();
+            SetStatus($"{device.Name}: SCL export failed. Diagnostics is marked with !.");
+            MessageBox.Show(this, ex.Message, "Save SCL", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SaveOpenedSclAsGenericEdition2(Iec61850MonitorDevice device, string outputPath)
+    {
+        var result = InteroperableSclConverter.WriteFiles(
+            device.SclSourcePath,
+            outputPath,
+            new InteroperableSclConversionOptions
+            {
+                IedName = string.IsNullOrWhiteSpace(device.SclIedName) ? device.Name : device.SclIedName,
+                PreserveAllIeds = false,
+                ToolId = "ARIEC61850"
+            });
+
+        AddLog(
+            "INFO",
+            "SCL Export",
+            $"{device.Name}: saved generic interoperable Edition 2 IID from opened SCL. LD={result.LogicalDeviceCount}, LN={result.LogicalNodeCount}, DataSet={result.DataSetCount}, RCB={result.ReportControlCount}, findings={result.Findings.Count}. SCL={result.OutputPath}");
+
+        foreach (var finding in result.Findings.Take(12))
+        {
+            var level = finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)
+                ? "ERROR"
+                : finding.Severity.Equals("Warning", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
+            var reference = string.IsNullOrWhiteSpace(finding.Reference)
+                ? string.Empty
+                : $" [{finding.Reference}]";
+            AddLog(level, "SCL Export", $"{device.Name} • {finding.Code}{reference}: {finding.Message}");
+        }
+        if (result.Findings.Count > 12)
+            AddLog("WARN", "SCL Export", $"{device.Name}: {result.Findings.Count - 12} additional interoperability finding(s) are available in {result.ReportPath}.");
+        if (result.Findings.Any(finding => finding.Severity.Equals("Error", StringComparison.OrdinalIgnoreCase)))
+            MarkDiagnosticAlert();
+
+        SetStatus($"{device.Name}: generic interoperable Edition 2 IID saved to {result.OutputPath}");
+        ShowSclSaveSuccess(
+            "Edition 2 (generic interoperable IID)",
+            result.OutputPath,
+            result.ReportPath,
+            result.SummaryPath);
+    }
+
+    private void SaveTypedModelAsScl(
+        Iec61850MonitorDevice device,
+        AR.Iec61850.Discovery.LiveIedModelDiscoveryDocument model,
+        string sourceDescription,
+        SclSchemaProfileDescriptor schema,
+        string outputPath)
+    {
+        var result = LiveIedSclExporter.WriteFiles(
+            model,
+            outputPath,
+            new LiveIedSclExportOptions
+            {
+                Profile = "safe-connection",
+                SchemaProfile = schema.Profile,
+                IpAddress = device.IpAddress
+            });
+
+        AddLog(
+            "INFO",
+            "SCL Export",
+            $"{device.Name}: saved {result.SclSchema} from {sourceDescription.ToLowerInvariant()}. LD={result.LogicalDeviceCount}, LN={result.LogicalNodeCount}, DataSet={result.DataSetCount}, RCB={result.ReportControlCount}, warnings={result.Warnings.Count}. SCL={result.SclPath}");
+
+        foreach (var warning in result.Warnings.Take(12))
+        {
+            var reference = string.IsNullOrWhiteSpace(warning.Reference)
+                ? string.Empty
+                : $" [{warning.Reference}]";
+            AddLog("WARN", "SCL Export", $"{device.Name} • {warning.Code}{reference}: {warning.Message}");
+        }
+        if (result.Warnings.Count > 12)
+            AddLog("WARN", "SCL Export", $"{device.Name}: {result.Warnings.Count - 12} additional export warning(s) are available in {result.ReportPath}.");
+
+        SetStatus($"{device.Name}: {result.SclSchema} saved to {result.SclPath}");
+        ShowSclSaveSuccess(result.SclSchema, result.SclPath, result.ReportPath, result.SummaryPath);
+    }
+
+    private void ShowSclSaveSuccess(string schema, string sclPath, string reportPath, string summaryPath)
+    {
+        MessageBox.Show(
+            this,
+            $"SCL saved successfully.\n\nSchema: {schema}\nSCL: {sclPath}\nEvidence: {reportPath}\nSummary: {summaryPath}",
+            "Save SCL",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
     private async void IedRemove_Click(object sender, RoutedEventArgs e)
     {
         if (!TryGetDeviceFromButton(sender, out var device) || device.IsBusy) return;
@@ -2004,6 +2161,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return false;
         }
         return true;
+    }
+
+    private static string SafeSclFileStem(string? value)
+    {
+        var source = string.IsNullOrWhiteSpace(value) ? "IED" : value.Trim();
+        var invalid = Path.GetInvalidFileNameChars().ToHashSet();
+        var builder = new StringBuilder(source.Length);
+        foreach (var character in source)
+            builder.Append(invalid.Contains(character) ? '_' : character);
+
+        var result = builder.ToString().Trim().Trim('.');
+        return string.IsNullOrWhiteSpace(result) ? "IED" : result;
     }
 
     private static bool TryGetDeviceFromButton(object sender, out Iec61850MonitorDevice device)

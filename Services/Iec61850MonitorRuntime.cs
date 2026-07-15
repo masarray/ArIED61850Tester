@@ -135,6 +135,9 @@ public sealed class Iec61850MonitorRuntime : IAsyncDisposable
 
             progress?.Report(new IedDiscoveryProgress(IedDiscoveryStage.AssociatingMms, "ACSE/MMS associated. Starting online discovery…", 18d, 3, 15));
             var discovered = await session.Client.DiscoverSignalsAsync(cancellationToken, progress).ConfigureAwait(false);
+            if (session.Client.LastLiveModel != null)
+                device.LiveDiscoveryModel = session.Client.LastLiveModel;
+
             var signals = discovered
                 .Where(signal => signal.CanPublishAsSignal || signal.IsControlSignal)
                 .GroupBy(signal => NormalizeReference(signal.ObjectReference), StringComparer.OrdinalIgnoreCase)

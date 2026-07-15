@@ -52,6 +52,7 @@ public sealed class NativeIec61850Client : IIec61850Client, IIec61850ControlClie
     public NativeReportInventory LastReportInventory { get; private set; } = new();
     public Iec61850DeviceIdentity DetectedIdentity { get; private set; } = new();
     public string DetectedIedName => DetectedIdentity.IedName;
+    public LiveIedModelDiscoveryDocument? LastLiveModel => _liveModel;
 
     public async Task ConnectAsync(string ipAddress, int port, CancellationToken cancellationToken)
     {
