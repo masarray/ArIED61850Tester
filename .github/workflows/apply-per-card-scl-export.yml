@@ -90,7 +90,7 @@ jobs:
               local path="$1"
               local message="$2"
               local current_sha local_blob content payload
-              current_sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/$path?ref=$TARGET_BRANCH" --jq .sha 2>/dev/null || true)
+              current_sha=$(gh api --method GET "repos/$GITHUB_REPOSITORY/contents/$path" -f ref="$TARGET_BRANCH" --jq .sha 2>/dev/null || true)
               local_blob=$(git hash-object "$path")
               if [ -n "$current_sha" ] && [ "$current_sha" = "$local_blob" ]; then
                 echo "$path already current"
