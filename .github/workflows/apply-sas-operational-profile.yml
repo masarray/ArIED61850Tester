@@ -1,5 +1,6 @@
 name: Apply SAS operational signal profile
 
+# Trigger a fresh pull-request run after staging is complete.
 on:
   pull_request:
     branches: [ main ]
