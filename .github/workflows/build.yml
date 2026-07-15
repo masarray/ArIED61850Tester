@@ -7,8 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  # Temporary integration pin. Switch to main after ARIEC61850 PR #27 is merged.
-  ARIEC61850_REF: fix/scl-dataset-binding-resolution
+  ARIEC61850_REF: main
 
 jobs:
   build-windows:
@@ -35,6 +34,8 @@ jobs:
             ArIED61850Tester/MainWindow.xaml.cs
             ArIED61850Tester/MainWindow.CommandPanelUx.cs
             ArIED61850Tester/MainWindow.ControlDiagnostics.cs
+            ArIED61850Tester/SaveSclWindow.xaml
+            ArIED61850Tester/SaveSclWindow.xaml.cs
             ArIED61850Tester/GridUxBehavior.cs
             ArIED61850Tester/Models
             ArIED61850Tester/Services
@@ -53,6 +54,9 @@ jobs:
           $workspace = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceService.cs"
           $workspaceModels = ".\ARIEC61850\src\AR.Iec61850\Scl\Workspace\SclWorkspaceModels.cs"
           $sclModels = ".\ARIEC61850\src\AR.Iec61850\Scl\SclModels.cs"
+          $sclExporter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\LiveIedSclExporter.cs"
+          $schemaProfiles = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\SclSchemaProfiles.cs"
+          $interoperableConverter = ".\ARIEC61850\src\AR.Iec61850\Scl\Export\InteroperableSclConverter.cs"
           if (!(Test-Path $control) -or !(Test-Path $models)) {
             throw "ARIEC61850 Smart Control source was not found. ArIED requires the native Control namespace."
           }
@@ -69,7 +73,18 @@ jobs:
             throw "ARIEC61850 SCL Workspace API does not expose design-versus-live comparison."
           }
           if (!(Test-Path $sclModels) -or !(Select-String -Path $sclModels -Pattern "SclDataSetBindingStatus" -Quiet)) {
-            throw "ARIEC61850 P1 typed SCL DataSet binding contract was not found."
+            throw "ARIEC61850 typed SCL DataSet binding contract was not found."
+          }
+          if (!(Test-Path $sclExporter) -or !(Select-String -Path $sclExporter -Pattern "WriteFiles" -Quiet)) {
+            throw "ARIEC61850 schema-aware LiveIedSclExporter was not found."
+          }
+          if (!(Test-Path $schemaProfiles) -or
+              !(Select-String -Path $schemaProfiles -Pattern "Edition2V31" -Quiet) -or
+              !(Select-String -Path $schemaProfiles -Pattern "Edition1V16" -Quiet)) {
+            throw "ARIEC61850 Edition 2 / Edition 1 SCL schema profiles were not found."
+          }
+          if (!(Test-Path $interoperableConverter) -or !(Select-String -Path $interoperableConverter -Pattern "WriteFiles" -Quiet)) {
+            throw "ARIEC61850 generic interoperable SCL converter was not found."
           }
 
       - name: Setup .NET 8
@@ -85,7 +100,7 @@ jobs:
 
       - name: Publish portable x64
         shell: powershell
-        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.9 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
+        run: .\ArIED61850Tester\scripts\publish-windows-portable.ps1 -Version 1.6.10 -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj"
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
