@@ -24,8 +24,8 @@ if ([string]::IsNullOrWhiteSpace($DistDirectory)) {
 $DistDirectory = [System.IO.Path]::GetFullPath($DistDirectory)
 
 $assets = @(
-    (Join-Path $DistDirectory "ArIED61850-$normalizedVersion-$Runtime-portable.zip")
-    (Join-Path $DistDirectory "ArIED61850-$normalizedVersion-$Runtime-setup.exe")
+    (Join-Path $DistDirectory "ARSAS-$normalizedVersion-$Runtime-portable.zip")
+    (Join-Path $DistDirectory "ARSAS-$normalizedVersion-$Runtime-setup.exe")
 )
 
 $lines = foreach ($asset in $assets) {

@@ -1,4 +1,4 @@
-name: Release Windows packages
+name: Release ARSAS Windows packages
 
 on:
   push:
@@ -30,11 +30,11 @@ env:
 
 jobs:
   windows-release:
-    name: Build portable ZIP and installer
+    name: Build ARSAS portable ZIP and installer
     runs-on: windows-latest
 
     steps:
-      - name: Checkout ArIED application
+      - name: Checkout ARSAS application
         uses: actions/checkout@v4
         with:
           path: ArIED61850Tester
@@ -98,16 +98,16 @@ jobs:
           .\ArIED61850Tester\scripts\build-windows-installer.ps1 `
             -Version $env:RELEASE_VERSION `
             -Runtime win-x64 `
-            -PublishedDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist\ArIED61850-$env:RELEASE_VERSION-win-x64" `
+            -PublishedDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist\ARSAS-$env:RELEASE_VERSION-win-x64" `
             -OutputDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist"
 
       - name: Smoke-test silent installer and uninstaller
         shell: powershell
         run: |
-          $installerPath = ".\ArIED61850Tester\dist\ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe"
+          $installerPath = ".\ArIED61850Tester\dist\ARSAS-$env:RELEASE_VERSION-win-x64-setup.exe"
           if (-not (Test-Path $installerPath -PathType Leaf)) { throw "Windows installer was not produced: $installerPath" }
 
-          $installRoot = Join-Path $env:RUNNER_TEMP "ArIED61850-installer-smoke"
+          $installRoot = Join-Path $env:RUNNER_TEMP "ARSAS-installer-smoke"
           if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
 
           $installArguments = @(
@@ -122,7 +122,7 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "Silent installer failed with exit code $($install.ExitCode)." }
 
           $requiredInstalledFiles = @(
-            "ArIED61850.exe",
+            "ARSAS.exe",
             "AR.Iec61850.Transports.Npcap.dll",
             "SharpPcap.dll",
             "PacketDotNet.dll"
@@ -150,11 +150,11 @@ jobs:
       - name: Upload Windows release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ArIED61850-${{ steps.release.outputs.version }}-windows
+          name: ARSAS-${{ steps.release.outputs.version }}-windows
           if-no-files-found: error
           path: |
-            ArIED61850Tester/dist/ArIED61850-${{ steps.release.outputs.version }}-win-x64-portable.zip
-            ArIED61850Tester/dist/ArIED61850-${{ steps.release.outputs.version }}-win-x64-setup.exe
+            ArIED61850Tester/dist/ARSAS-${{ steps.release.outputs.version }}-win-x64-portable.zip
+            ArIED61850Tester/dist/ARSAS-${{ steps.release.outputs.version }}-win-x64-setup.exe
             ArIED61850Tester/dist/SHA256SUMS.txt
 
       - name: Create or update GitHub Release
@@ -166,8 +166,8 @@ jobs:
         run: |
           $dist = Join-Path $env:GITHUB_WORKSPACE "ArIED61850Tester\dist"
           $assets = @(
-            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-portable.zip")
-            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe")
+            (Join-Path $dist "ARSAS-$env:RELEASE_VERSION-win-x64-portable.zip")
+            (Join-Path $dist "ARSAS-$env:RELEASE_VERSION-win-x64-setup.exe")
             (Join-Path $dist "SHA256SUMS.txt")
           )
 
@@ -182,7 +182,7 @@ jobs:
             "release", "create", $env:RELEASE_TAG,
             "--repo", $env:GITHUB_REPOSITORY,
             "--target", $env:GITHUB_SHA,
-            "--title", "ArIED 61850 $env:RELEASE_VERSION",
+            "--title", "ARSAS $env:RELEASE_VERSION",
             "--generate-notes"
           )
           if ($env:RELEASE_VERSION.Contains("-") -or ($env:GITHUB_REF_TYPE -ne "tag" -and $env:MANUAL_PRERELEASE -eq "true")) {

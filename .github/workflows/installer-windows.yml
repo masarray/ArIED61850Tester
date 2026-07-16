@@ -1,4 +1,4 @@
-name: Validate Windows installer
+name: Validate ARSAS Windows installer
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout ArIED application
+      - name: Checkout ARSAS application
         uses: actions/checkout@v4
         with:
           path: ArIED61850Tester
@@ -79,16 +79,16 @@ jobs:
           .\ArIED61850Tester\scripts\build-windows-installer.ps1 `
             -Version $env:APP_VERSION `
             -Runtime win-x64 `
-            -PublishedDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist\ArIED61850-$env:APP_VERSION-win-x64" `
+            -PublishedDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist\ARSAS-$env:APP_VERSION-win-x64" `
             -OutputDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist"
 
       - name: Silent install and uninstall smoke test
         shell: powershell
         run: |
-          $installerPath = ".\ArIED61850Tester\dist\ArIED61850-$env:APP_VERSION-win-x64-setup.exe"
+          $installerPath = ".\ArIED61850Tester\dist\ARSAS-$env:APP_VERSION-win-x64-setup.exe"
           if (-not (Test-Path $installerPath -PathType Leaf)) { throw "Installer not found: $installerPath" }
 
-          $installRoot = Join-Path $env:RUNNER_TEMP "ArIED61850-installer-smoke"
+          $installRoot = Join-Path $env:RUNNER_TEMP "ARSAS-installer-smoke"
           if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
 
           $install = Start-Process -FilePath $installerPath -ArgumentList @(
@@ -101,7 +101,7 @@ jobs:
           ) -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Installer exited with code $($install.ExitCode)." }
 
-          foreach ($file in @("ArIED61850.exe", "AR.Iec61850.Transports.Npcap.dll", "SharpPcap.dll", "PacketDotNet.dll")) {
+          foreach ($file in @("ARSAS.exe", "AR.Iec61850.Transports.Npcap.dll", "SharpPcap.dll", "PacketDotNet.dll")) {
             $installedFile = Join-Path $installRoot $file
             if (-not (Test-Path $installedFile -PathType Leaf)) { throw "Missing installed file: $installedFile" }
           }
@@ -126,8 +126,8 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ArIED61850-${{ env.APP_VERSION }}-win-x64-installer
+          name: ARSAS-${{ env.APP_VERSION }}-win-x64-installer
           if-no-files-found: error
           path: |
-            ArIED61850Tester/dist/ArIED61850-${{ env.APP_VERSION }}-win-x64-setup.exe
+            ArIED61850Tester/dist/ARSAS-${{ env.APP_VERSION }}-win-x64-setup.exe
             ArIED61850Tester/dist/SHA256SUMS.txt
