@@ -586,9 +586,9 @@ public partial class MainWindow
         var diagnostics = diagnosticItems.Count == 0
             ? string.Empty
             : string.Join(" • ", diagnosticItems.Distinct(StringComparer.OrdinalIgnoreCase));
-        var vlan = frame.Vlan is null
-            ? "untagged"
-            : $"VID {frame.Vlan.VlanId} / PCP {frame.Vlan.PriorityCodePoint}";
+        var vlan = frame.Vlan is { } vlanTag
+    ? $"VID {vlanTag.VlanId} / PCP {vlanTag.PriorityCodePoint}"
+    : "untagged";
 
         return new GooseStreamSnapshot(
             captured.StreamKey,
