@@ -1,0 +1,55 @@
+name: ARSAS compile diagnostics
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  ARIEC61850_REF: main
+
+jobs:
+  compile:
+    if: github.head_ref == 'feat/arsas-realistic-demo'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/arsas-realistic-demo
+      - name: Apply generated ARSAS source
+        shell: powershell
+        run: |
+          Set-Location $env:GITHUB_WORKSPACE
+          python .\scripts\apply-arsas-rebrand-demo.py
+      - name: Checkout engine
+        shell: powershell
+        run: git clone --quiet --depth 1 --branch $env:ARIEC61850_REF https://github.com/masarray/ARIEC61850.git ..\ARIEC61850
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore
+        shell: powershell
+        run: dotnet restore .\ArIED61850Tester.csproj
+      - name: Build and capture concise errors
+        id: build
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $output = & dotnet build .\ArIED61850Tester.csproj -c Release --no-restore 2>&1
+          $output | Set-Content .\arsas-build.log
+          $errors = $output | Select-String -Pattern ': error (CS|MC|XDG|NETSDK)[0-9]+|Build FAILED|[0-9]+ Error\(s\)'
+          $errors | Set-Content .\arsas-errors.txt
+          $errors | ForEach-Object { Write-Host $_.Line }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload compiler diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsas-compile-diagnostics
+          path: |
+            arsas-build.log
+            arsas-errors.txt
+      - name: Fail when build failed
+        if: steps.build.outcome == 'failure'
+        shell: powershell
+        run: exit 1
