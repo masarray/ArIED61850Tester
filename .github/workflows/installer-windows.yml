@@ -1,0 +1,121 @@
+name: Validate Windows installer
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "installer/**"
+      - "scripts/build-windows-installer.ps1"
+      - "scripts/publish-windows-portable.ps1"
+      - ".github/workflows/installer-windows.yml"
+      - ".github/workflows/release-windows.yml"
+      - "ArIED61850Tester.csproj"
+  pull_request:
+    paths:
+      - "installer/**"
+      - "scripts/build-windows-installer.ps1"
+      - "scripts/publish-windows-portable.ps1"
+      - ".github/workflows/installer-windows.yml"
+      - ".github/workflows/release-windows.yml"
+      - "ArIED61850Tester.csproj"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARIEC61850_REF: main
+
+jobs:
+  installer:
+    name: Build and install/uninstall smoke test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout ArIED application
+        uses: actions/checkout@v4
+        with:
+          path: ArIED61850Tester
+
+      - name: Checkout ARIEC61850 engine
+        shell: powershell
+        run: git clone --quiet --depth 1 --branch $env:ARIEC61850_REF https://github.com/masarray/ARIEC61850.git ARIEC61850
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Read application version
+        shell: powershell
+        run: |
+          [xml]$project = Get-Content ".\ArIED61850Tester\ArIED61850Tester.csproj"
+          $version = [string]$project.Project.PropertyGroup.Version
+          if ($version -notmatch '^\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$') {
+            throw "Project version is not valid semantic versioning: $version"
+          }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Publish installer source
+        shell: powershell
+        run: |
+          .\ArIED61850Tester\scripts\publish-windows-portable.ps1 `
+            -Version $env:APP_VERSION `
+            -Runtime win-x64 `
+            -SingleFile $false `
+            -SelfContained $true `
+            -EngineProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850\AR.Iec61850.csproj" `
+            -NpcapProject "$env:GITHUB_WORKSPACE\ARIEC61850\src\AR.Iec61850.Transports.Npcap\AR.Iec61850.Transports.Npcap.csproj"
+
+      - name: Install Inno Setup compiler
+        shell: powershell
+        run: choco install innosetup --no-progress --yes
+
+      - name: Compile installer
+        shell: powershell
+        run: |
+          .\ArIED61850Tester\scripts\build-windows-installer.ps1 `
+            -Version $env:APP_VERSION `
+            -Runtime win-x64 `
+            -PublishedDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist\ArIED61850-$env:APP_VERSION-win-x64" `
+            -OutputDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist"
+
+      - name: Silent install and uninstall smoke test
+        shell: powershell
+        run: |
+          $installerPath = ".\ArIED61850Tester\dist\ArIED61850-$env:APP_VERSION-win-x64-setup.exe"
+          if (-not (Test-Path $installerPath -PathType Leaf)) { throw "Installer not found: $installerPath" }
+
+          $installRoot = Join-Path $env:RUNNER_TEMP "ArIED61850-installer-smoke"
+          if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
+
+          $install = Start-Process -FilePath $installerPath -ArgumentList @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/SP-",
+            "/CURRENTUSER",
+            "/DIR=$installRoot"
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exited with code $($install.ExitCode)." }
+
+          foreach ($file in @("ArIED61850.exe", "AR.Iec61850.Transports.Npcap.dll", "SharpPcap.dll", "PacketDotNet.dll")) {
+            $installedFile = Join-Path $installRoot $file
+            if (-not (Test-Path $installedFile -PathType Leaf)) { throw "Missing installed file: $installedFile" }
+          }
+
+          $uninstaller = Join-Path $installRoot "unins000.exe"
+          if (-not (Test-Path $uninstaller -PathType Leaf)) { throw "Uninstaller was not created." }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART"
+          ) -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exited with code $($uninstall.ExitCode)." }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArIED61850-${{ env.APP_VERSION }}-win-x64-installer
+          if-no-files-found: error
+          path: ArIED61850Tester/dist/ArIED61850-${{ env.APP_VERSION }}-win-x64-setup.exe
