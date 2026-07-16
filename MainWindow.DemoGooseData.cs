@@ -66,22 +66,25 @@ public partial class MainWindow
             var state = new DemoGooseStreamState(streamSpecs[index], stateNumber: 12 + index * 3, sequenceNumber: 510 + index * 71, packetCount: 8200 + index * 1260);
             var row = new GooseStreamRow { StreamKey = state.Spec.StreamKey };
             state.Row = row;
-            row.Apply(BuildDemoGooseSnapshot(state, changedIndex: -1, diagnostics: string.Empty, baseTime.AddSeconds(index * 4)));
+            row.Apply(BuildDemoGooseSnapshot(state, changedIndex: -1, diagnostics: string.Empty, baseTime.AddMilliseconds(index * _demoRandom.Next(3, 19))));
             GooseStreams.Add(row);
             _gooseStreamIndex[row.StreamKey] = row;
             _demoGooseStates.Add(state);
         }
 
+        var timelineCursor = baseTime;
         for (var index = 0; index < 30; index++)
         {
             var state = _demoGooseStates[index % _demoGooseStates.Count];
-            var timestamp = baseTime.AddSeconds(index * 8.2);
+            var delta = index == 0 ? TimeSpan.Zero : NextGooseTimelineDelta(index);
+            timelineCursor = timelineCursor.Add(delta);
+            state.LastTimelineTimestamp = timelineCursor;
             var leaf = state.Leaves[index % state.Leaves.Count];
             GooseEvents.Add(new GooseEventRow
             {
                 StreamKey = state.Spec.StreamKey,
-                Timestamp = timestamp,
-                DeltaText = index < _demoGooseStates.Count ? "-" : "8.200 s",
+                Timestamp = timelineCursor,
+                DeltaText = index < _demoGooseStates.Count ? "-" : FormatGooseDelta(delta),
                 EventText = index % 11 == 0 ? "Warning" : "State change",
                 EventTone = index % 11 == 0 ? "Warning" : "Change",
                 Publisher = state.Spec.IedName,
@@ -103,19 +106,36 @@ public partial class MainWindow
         RaiseGoosePresentationState();
     }
 
+    private TimeSpan NextGooseTimelineDelta(int index)
+    {
+        var milliseconds = index % 7 switch
+        {
+            0 => _demoRandom.Next(1450, 6200),
+            1 => _demoRandom.Next(2, 9),
+            2 => _demoRandom.Next(9, 35),
+            3 => _demoRandom.Next(35, 140),
+            4 => _demoRandom.Next(140, 650),
+            5 => _demoRandom.Next(650, 1900),
+            _ => _demoRandom.Next(1900, 4800)
+        };
+        return TimeSpan.FromMilliseconds(milliseconds + _demoRandom.NextDouble());
+    }
+
     private void BuildDemoDiagnostics()
     {
         var now = DateTime.Now;
         var logs = new List<DiagnosticEntry>
         {
-            new() { Time = now.AddMinutes(-8), Level = "INFO", Source = "System", Message = "ARSAS communication workspace initialized." },
+            new() { Time = now.AddMinutes(-8), Level = "INFO", Source = "System", Message = "Connection health monitor started for 10 IEC 61850 sessions." },
             new() { Time = now.AddMinutes(-7.8), Level = "INFO", Source = "MMS", Message = "10 independent IEC 61850 associations established on TCP/102." },
-            new() { Time = now.AddMinutes(-7.6), Level = "INFO", Source = "Discovery", Message = "IEDName, LD/LN/DO/DA, DataSets, RCBs and GSEControl models resolved for all demo IEDs." },
-            new() { Time = now.AddMinutes(-7.4), Level = "INFO", Source = "Reporting", Message = "6 BRCB and 4 URCB sessions enabled; dchg/qchg/dupd and integrity reasons validated." },
+            new() { Time = now.AddMinutes(-7.6), Level = "INFO", Source = "Discovery", Message = "IEDName, LD/LN/DO/DA, DataSets, RCBs and GSEControl models resolved for all connected IEDs." },
+            new() { Time = now.AddMinutes(-7.4), Level = "INFO", Source = "Reporting", Message = "10 dynamic BRCB sessions enabled; dchg, qchg, dupd and integrity reasons verified." },
             new() { Time = now.AddMinutes(-7.2), Level = "INFO", Source = "GOOSE", Message = "6 station-bus publishers bound to ordered DataSet leaves on VLANs 100-150." },
+            new() { Time = now.AddMinutes(-6.8), Level = "INFO", Source = "Quality", Message = "All monitored process values currently report quality Good with valid source timestamps." },
             new() { Time = now.AddMinutes(-4.1), Level = "WARN", Source = "GOOSE", Message = "One delayed retransmission exceeded the expected interval; TAL supervision recovered without state loss." },
             new() { Time = now.AddMinutes(-3.9), Level = "INFO", Source = "GOOSE", Message = "Publisher sequence returned to normal; stNum and sqNum continuity verified." },
-            new() { Time = now.AddMinutes(-1.2), Level = "INFO", Source = "Reporting", Message = "Periodic integrity report completed for E03TDIF1; 12 values confirmed good." }
+            new() { Time = now.AddMinutes(-2.5), Level = "INFO", Source = "Control", Message = "CTRL/CSWI1.Pos DPC controls resolved with SBO Enhanced and live status feedback." },
+            new() { Time = now.AddMinutes(-1.2), Level = "INFO", Source = "Reporting", Message = "Periodic integrity report completed for E03TDIF1; 12 values confirmed Good." }
         };
         Logs.AddRange(logs);
     }
