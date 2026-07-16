@@ -312,6 +312,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         device.Signals.AddRange(signals);
         device.RecountSelectedSignals();
         device.RefreshComputed();
+        ScheduleGooseBindingRefreshFromWorkspace();
     }
 
     private static string BuildSclWorkspaceSummary(SclIedWorkspace workspace)
@@ -635,6 +636,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             device.Signals.AddRange(signals);
             device.HasDiscoveryCache = signals.Count > 0;
             ApplySclLiveComparison(device, signals);
+            ScheduleGooseBindingRefreshFromWorkspace();
 
             try
             {
@@ -652,7 +654,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             // Let the card-local bar visibly settle at 100%, then release the card
             // before opening a modal wizard or starting live monitoring.
-            await WaitForDiscoveryProgressAnimationAsync(device, TimeSpan.FromMilliseconds(1800));
+            await WaitForDiscoveryProgressAnimationAsync(device, TimeSpan.FromMilliseconds(650));
             device.CompleteDiscoveryProgressAnimation();
             device.BusyStage = "Discovery complete";
             device.IsBusy = false;
@@ -871,13 +873,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             device,
             restoredSelectionCount < 0 ? device.SelectedSignalCount : restoredSelectionCount)
         {
-            Owner = this
+            Owner = this,
+            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
 
         _signalSelectionWizardOpen = true;
         try
         {
-            if (wizard.ShowDialog() != true)
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void WizardClosed(object? sender, EventArgs args)
+            {
+                wizard.Closed -= WizardClosed;
+                completion.TrySetResult(wizard.Accepted);
+            }
+
+            wizard.Closed += WizardClosed;
+            wizard.Show();
+            var accepted = await completion.Task;
+            if (!accepted)
             {
                 device.RefreshComputed();
                 RaiseWorkspaceCounts();

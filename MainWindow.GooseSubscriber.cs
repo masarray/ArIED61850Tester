@@ -17,6 +17,7 @@ public partial class MainWindow
 {
     private readonly GooseSubscriberRuntime _gooseSubscriberRuntime = new();
     private readonly ConcurrentDictionary<string, GooseSubscriberFrameSnapshot> _pendingGooseFrames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, GooseSubscriberFrameSnapshot> _latestGooseFrames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, GooseStreamRow> _gooseStreamIndex = new(StringComparer.OrdinalIgnoreCase);
     private GooseBindingCatalog _gooseBindingCatalog = GooseBindingCatalog.Empty;
     private GooseAdapterOption? _selectedGooseAdapter;
@@ -30,6 +31,7 @@ public partial class MainWindow
     private long _gooseFrames;
     private long _gooseOtherFrames;
     private bool _gooseWorkspaceActivationScheduled;
+    private bool _gooseBindingRefreshScheduled;
 
     public BulkObservableCollection<GooseAdapterOption> GooseAdapters { get; } = new();
     public BulkObservableCollection<GooseStreamRow> GooseStreams { get; } = new();
@@ -190,6 +192,7 @@ public partial class MainWindow
     private void ResetGooseView(bool resetCounters)
     {
         _pendingGooseFrames.Clear();
+        _latestGooseFrames.Clear();
         _gooseStreamIndex.Clear();
         GooseStreams.Clear();
         SelectedGooseStream = null;
@@ -256,13 +259,11 @@ public partial class MainWindow
 
     private void RefreshGooseBindingPreview()
     {
-        if (IsGooseCapturing)
-            return;
-
         try
         {
             _gooseBindingCatalog = BuildGooseBindingCatalog();
             GooseBindingText = _gooseBindingCatalog.Summary;
+            RebindGooseRowsFromLatestFrames();
         }
         catch (Exception ex)
         {
@@ -271,6 +272,33 @@ public partial class MainWindow
             // GOOSE capture; allData remains visible in exact wire order.
             ApplyGooseWorkspaceFallback("GOOSE model binding unavailable", ex);
         }
+    }
+
+    private void ScheduleGooseBindingRefreshFromWorkspace()
+    {
+        if ((!_goosePresentationInstalled && !IsGooseCapturing) ||
+            _gooseBindingRefreshScheduled || Dispatcher.HasShutdownStarted)
+            return;
+
+        _gooseBindingRefreshScheduled = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+        {
+            _gooseBindingRefreshScheduled = false;
+            RefreshGooseBindingPreview();
+        }));
+    }
+
+    private void RebindGooseRowsFromLatestFrames()
+    {
+        foreach (var captured in _latestGooseFrames.Values.Take(256))
+        {
+            if (_gooseStreamIndex.TryGetValue(captured.StreamKey, out var row))
+                row.Apply(BuildGooseStreamSnapshot(captured, _gooseBindingCatalog));
+        }
+
+        Raise(nameof(GooseSelectedStreamText));
+        Raise(nameof(GooseNoLeafValuesVisibility));
+        Raise(nameof(GooseSelectedLeafCountText));
     }
 
     private void ApplyGooseWorkspaceFallback(string context, Exception exception)
@@ -303,7 +331,10 @@ public partial class MainWindow
     }
 
     private void GooseSubscriberRuntime_FrameReceived(GooseSubscriberFrameSnapshot snapshot)
-        => _pendingGooseFrames[snapshot.StreamKey] = snapshot;
+    {
+        _latestGooseFrames[snapshot.StreamKey] = snapshot;
+        _pendingGooseFrames[snapshot.StreamKey] = snapshot;
+    }
 
     private void GooseSubscriberRuntime_StatusChanged(GooseSubscriberStatusSnapshot status)
     {

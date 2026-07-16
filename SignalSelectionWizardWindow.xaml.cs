@@ -27,6 +27,7 @@ public partial class SignalSelectionWizardWindow : Window, INotifyPropertyChange
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    public bool Accepted => _accepted;
     public ICollectionView SignalsView { get; }
     public string DialogTitle => $"IEC 61850 Signal Selection — {_device.Name} — {_device.EndpointText}";
     public string RestoreMessage { get; }
@@ -474,14 +475,11 @@ public partial class SignalSelectionWizardWindow : Window, INotifyPropertyChange
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         _accepted = true;
-        DialogResult = true;
+        Close();
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        RestoreOriginalSelection();
-        DialogResult = false;
-    }
+        => Close();
 
     private void Window_Closing(object? sender, CancelEventArgs e)
     {

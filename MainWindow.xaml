@@ -465,9 +465,6 @@
                                             </Viewbox>
                                         </Border>
                                         <TextBlock Text="IED Command Panel" FontSize="13.6" FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
-                                        <Border Background="#EAF2FF" BorderBrush="#C7D8F2" BorderThickness="1" CornerRadius="10" Padding="7,2" Margin="9,0,0,0">
-                                            <TextBlock Text="{Binding SelectedDevice.CommandSignals.Count, StringFormat={}{0} controls}" FontSize="10.8" FontWeight="SemiBold" Foreground="#45648E"/>
-                                        </Border>
                                     </StackPanel>
                                 </Expander.Header>
                                 <Border Style="{StaticResource Card}" Background="{StaticResource CommandPanelSurface}" Padding="16" BorderBrush="#BFD0E5">

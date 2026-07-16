@@ -182,9 +182,10 @@ public partial class MainWindow
         {
             var stream = BuildGooseStreamSnapshot(captured, _gooseBindingCatalog);
             var eventRow = BuildGooseEventRow(captured, stream);
-            GooseEvents.Insert(0, eventRow);
+            // Append in capture order. Tail insertion avoids shifting every realized row.
+            GooseEvents.Add(eventRow);
             while (GooseEvents.Count > MaxGooseTimelineEvents)
-                GooseEvents.RemoveAt(GooseEvents.Count - 1);
+                GooseEvents.RemoveAt(0);
 
             SelectedGooseEvent ??= eventRow;
             processed++;
@@ -269,17 +270,16 @@ public partial class MainWindow
             .Take(2)
             .Select(leaf =>
             {
-                var previous = string.IsNullOrWhiteSpace(leaf.PreviousValue)
-                    ? "-"
-                    : ShortenGooseText(GooseEngineeringValueFormatter.Format(leaf.PreviousValue), 30);
-                var current = GooseEngineeringValueFormatter.Format(leaf.Value);
-                return $"{leaf.SignalName}: {previous} → {ShortenGooseText(current, 36)}";
+                var current = ShortenGooseText(GooseEngineeringValueFormatter.Format(leaf.Value), 30);
+                return IsGenericGooseLeafName(leaf.SignalName)
+                    ? current
+                    : $"{ShortenGooseText(leaf.SignalName, 22)}: {current}";
             })
             .ToArray();
         if (changed.Length > 0)
         {
             var suffix = stream.ChangedValueCount > changed.Length
-                ? $" • +{stream.ChangedValueCount - changed.Length:N0} more"
+                ? $" • +{stream.ChangedValueCount - changed.Length:N0}"
                 : string.Empty;
             return string.Join(" • ", changed) + suffix;
         }
@@ -288,6 +288,13 @@ public partial class MainWindow
             return $"Publisher detected • {stream.Leaves.Count:N0} DataSet value(s)";
 
         return FriendlySequenceStatus(stream.SequenceStatus);
+    }
+
+    private static bool IsGenericGooseLeafName(string? value)
+    {
+        var text = value?.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(text) ||
+               text.StartsWith("Leaf ", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FriendlySequenceStatus(string value)
