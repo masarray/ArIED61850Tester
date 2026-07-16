@@ -38,29 +38,36 @@ jobs:
       - name: Build
         shell: powershell
         run: dotnet build .\ArIED61850Tester.csproj -c Release --no-restore
-      - name: Commit production ARSAS sources
+      - name: Commit validated production sources
         shell: powershell
         run: |
-          git fetch origin main --depth 1
-          git checkout origin/main -- scripts/verify-source-clean.ps1
-          $temporary = @(
-            ".github/workflows/arsas-compile-diagnostics.yml",
-            ".github/workflows/apply-arsas-rebrand-demo.yml",
-            "scripts/apply-arsas-rebrand-demo.py",
-            "scripts/export-arsas-patch-files.py",
-            "scripts/fix-arsas-generated-source.py"
+          $production = @(
+            "MainWindow.xaml",
+            "MainWindow.xaml.cs",
+            "MainWindow.Demo.cs",
+            "MainWindow.DemoSignals.cs",
+            "MainWindow.DemoProcessRuntime.cs",
+            "MainWindow.DemoGooseData.cs",
+            "MainWindow.DemoGooseSnapshot.cs",
+            "MainWindow.DemoInteraction.cs",
+            "MainWindow.DemoCommandModel.cs",
+            "Models/MonitorModels.cs",
+            "Models/GooseSubscriberModels.cs",
+            "Models/ControlModels.cs",
+            "Services/DiagnosticReportBuilder.cs",
+            "ArIED61850Tester.csproj",
+            "scripts/publish-windows-portable.ps1",
+            "scripts/build-windows-installer.ps1",
+            "installer/ArIED61850.iss",
+            "README.md",
+            "landing/index.html",
+            "landing/features.html",
+            "landing/control.html",
+            "landing/architecture.html",
+            "landing/site.webmanifest"
           )
-          foreach ($path in $temporary) {
-            if (Test-Path $path) { git rm -f -- $path }
-          }
-          if (Test-Path "docs/__arsas_patch_export") {
-            Remove-Item "docs/__arsas_patch_export" -Recurse -Force
-          }
-          git add -A
-          if (git diff --cached --quiet) {
-            Write-Host "No production changes to commit."
-            exit 0
-          }
+          git add -- $production
+          git diff --cached --stat
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat: rebrand product as ARSAS and refine communication workspace"
