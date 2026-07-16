@@ -104,8 +104,8 @@ jobs:
       - name: Smoke-test silent installer and uninstaller
         shell: powershell
         run: |
-          $installer = Get-ChildItem ".\ArIED61850Tester\dist\ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe" | Select-Object -First 1
-          if (-not $installer) { throw "Windows installer was not produced." }
+          $installerPath = ".\ArIED61850Tester\dist\ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe"
+          if (-not (Test-Path $installerPath -PathType Leaf)) { throw "Windows installer was not produced: $installerPath" }
 
           $installRoot = Join-Path $env:RUNNER_TEMP "ArIED61850-installer-smoke"
           if (Test-Path $installRoot) { Remove-Item $installRoot -Recurse -Force }
@@ -118,7 +118,7 @@ jobs:
             "/CURRENTUSER",
             "/DIR=$installRoot"
           )
-          $install = Start-Process -FilePath $installer.FullName -ArgumentList $installArguments -Wait -PassThru
+          $install = Start-Process -FilePath $installerPath -ArgumentList $installArguments -Wait -PassThru
           if ($install.ExitCode -ne 0) { throw "Silent installer failed with exit code $($install.ExitCode)." }
 
           $requiredInstalledFiles = @(
@@ -142,17 +142,10 @@ jobs:
       - name: Create SHA-256 checksums
         shell: powershell
         run: |
-          $dist = ".\ArIED61850Tester\dist"
-          $assets = @(
-            Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-portable.zip",
-            Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe"
-          )
-          $lines = foreach ($asset in $assets) {
-            if (-not (Test-Path $asset -PathType Leaf)) { throw "Release asset was not found: $asset" }
-            $hash = Get-FileHash -Path $asset -Algorithm SHA256
-            "$($hash.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($asset))"
-          }
-          $lines | Set-Content -Path (Join-Path $dist "SHA256SUMS.txt") -Encoding ascii
+          .\ArIED61850Tester\scripts\create-windows-release-checksums.ps1 `
+            -Version $env:RELEASE_VERSION `
+            -Runtime win-x64 `
+            -DistDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist"
 
       - name: Upload Windows release artifacts
         uses: actions/upload-artifact@v4
@@ -173,8 +166,8 @@ jobs:
         run: |
           $dist = Join-Path $env:GITHUB_WORKSPACE "ArIED61850Tester\dist"
           $assets = @(
-            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-portable.zip"),
-            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe"),
+            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-portable.zip")
+            (Join-Path $dist "ArIED61850-$env:RELEASE_VERSION-win-x64-setup.exe")
             (Join-Path $dist "SHA256SUMS.txt")
           )
 

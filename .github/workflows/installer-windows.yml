@@ -6,6 +6,7 @@ on:
     paths:
       - "installer/**"
       - "scripts/build-windows-installer.ps1"
+      - "scripts/create-windows-release-checksums.ps1"
       - "scripts/publish-windows-portable.ps1"
       - ".github/workflows/installer-windows.yml"
       - ".github/workflows/release-windows.yml"
@@ -14,6 +15,7 @@ on:
     paths:
       - "installer/**"
       - "scripts/build-windows-installer.ps1"
+      - "scripts/create-windows-release-checksums.ps1"
       - "scripts/publish-windows-portable.ps1"
       - ".github/workflows/installer-windows.yml"
       - ".github/workflows/release-windows.yml"
@@ -113,9 +115,19 @@ jobs:
           ) -Wait -PassThru
           if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exited with code $($uninstall.ExitCode)." }
 
+      - name: Create release checksums
+        shell: powershell
+        run: |
+          .\ArIED61850Tester\scripts\create-windows-release-checksums.ps1 `
+            -Version $env:APP_VERSION `
+            -Runtime win-x64 `
+            -DistDirectory "$env:GITHUB_WORKSPACE\ArIED61850Tester\dist"
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: ArIED61850-${{ env.APP_VERSION }}-win-x64-installer
           if-no-files-found: error
-          path: ArIED61850Tester/dist/ArIED61850-${{ env.APP_VERSION }}-win-x64-setup.exe
+          path: |
+            ArIED61850Tester/dist/ArIED61850-${{ env.APP_VERSION }}-win-x64-setup.exe
+            ArIED61850Tester/dist/SHA256SUMS.txt
