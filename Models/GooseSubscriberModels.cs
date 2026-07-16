@@ -53,7 +53,7 @@ public sealed class GooseLeafValueRow : ObservableObject
     }
 }
 
-public sealed class GooseStreamRow : ObservableObject
+public sealed partial class GooseStreamRow : ObservableObject
 {
     private string _appIdText = "-";
     private string _goCbRef = string.Empty;
@@ -131,6 +131,7 @@ public sealed class GooseStreamRow : ObservableObject
         Raise(nameof(IdentityText));
         Raise(nameof(FlagsText));
         Raise(nameof(HealthText));
+        RaisePresentationProperties();
     }
 
     private void ApplyLeaves(IReadOnlyList<GooseLeafValueSnapshot> snapshots)
