@@ -51,16 +51,11 @@
 
                     <ComboBox Grid.Column="2" ItemsSource="{Binding GooseAdapters}"
                               SelectedItem="{Binding SelectedGooseAdapter, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayText" TextSearch.TextPath="DisplayText"
                               Style="{StaticResource ModernComboBox}" Height="34" Padding="10,4"
                               IsHitTestVisible="{Binding CanRefreshGooseConfiguration}"
                               Focusable="{Binding CanRefreshGooseConfiguration}"
-                              ToolTip="{Binding SelectedGooseAdapterDetail}">
-                        <ComboBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding DisplayText}" TextTrimming="CharacterEllipsis"/>
-                            </DataTemplate>
-                        </ComboBox.ItemTemplate>
-                    </ComboBox>
+                              ToolTip="{Binding SelectedGooseAdapterDetail}"/>
 
                     <Button Grid.Column="4" Style="{StaticResource IedIconButton}"
                             Click="RefreshAdapters_Click" IsEnabled="{Binding CanRefreshGooseConfiguration}"
@@ -377,7 +372,7 @@
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Publisher" Binding="{Binding Publisher}" Width="155" MinWidth="120"/>
                                 <DataGridTextColumn Header="st / sq" Binding="{Binding StateSequenceText}" Width="78"/>
-                                <DataGridTextColumn Header="Changed values" Binding="{Binding Summary}" Width="*" MinWidth="150"/>
+                                <DataGridTextColumn Header="Values" Binding="{Binding Summary}" Width="*" MinWidth="150"/>
                             </DataGrid.Columns>
                         </DataGrid>
 

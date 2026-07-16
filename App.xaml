@@ -503,7 +503,13 @@
                                 </Grid>
                             </Border>
                             <ToggleButton Background="Transparent" BorderThickness="0" Focusable="False" Cursor="Hand"
-                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"/>
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent"/>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
                             <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                                    AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
                                 <Border x:Name="PopupChrome" MinWidth="{Binding ActualWidth, ElementName=Chrome}" MaxHeight="{TemplateBinding MaxDropDownHeight}"
