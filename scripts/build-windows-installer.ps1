@@ -60,11 +60,16 @@ if ([string]::IsNullOrWhiteSpace($InnoCompiler)) {
         $InnoCompiler = $command.Source
     }
     else {
-        $candidates = @(
-            (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"),
-            (Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"),
-            (Join-Path $env:ChocolateyInstall "bin\ISCC.exe")
-        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $candidates = [System.Collections.Generic.List[string]]::new()
+        if (-not [string]::IsNullOrWhiteSpace(${env:ProgramFiles(x86)})) {
+            $candidates.Add((Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"))
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+            $candidates.Add((Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"))
+        }
+        if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyInstall)) {
+            $candidates.Add((Join-Path $env:ChocolateyInstall "bin\ISCC.exe"))
+        }
         $InnoCompiler = $candidates | Where-Object { Test-Path $_ -PathType Leaf } | Select-Object -First 1
     }
 }
