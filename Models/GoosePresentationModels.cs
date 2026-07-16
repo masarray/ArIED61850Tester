@@ -60,8 +60,10 @@ public sealed partial class GooseStreamRow
     }
 }
 
-public sealed class GooseEventRow
+public sealed class GooseEventRow : ObservableObject
 {
+    private bool _isRecent = true;
+
     public required string StreamKey { get; init; }
     public required DateTimeOffset Timestamp { get; init; }
     public required string DeltaText { get; init; }
@@ -71,5 +73,14 @@ public sealed class GooseEventRow
     public required string StateSequenceText { get; init; }
     public required string Summary { get; init; }
 
+    public bool IsRecent { get => _isRecent; private set => Set(ref _isRecent, value); }
     public string TimeText => Timestamp.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
+
+    public bool ExpireHighlight(DateTimeOffset nowUtc)
+    {
+        if (!IsRecent || nowUtc - Timestamp < TimeSpan.FromSeconds(5))
+            return false;
+        IsRecent = false;
+        return true;
+    }
 }
