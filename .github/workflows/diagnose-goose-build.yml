@@ -1,50 +1,48 @@
-name: Diagnose GOOSE Subscriber build
+name: Apply GOOSE VLAN nullable fix
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - .github/workflows/diagnose-goose-build.yml
   push:
     branches: [ feature/goose-subscriber ]
     paths:
       - .github/workflows/diagnose-goose-build.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build-log:
-    runs-on: windows-latest
+  apply:
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
         with:
           ref: feature/goose-subscriber
+          fetch-depth: 0
 
-      - name: Checkout ARIEC61850 engine
-        shell: powershell
-        run: git clone --quiet --depth 1 --branch main https://github.com/masarray/ARIEC61850.git ..\ARIEC61850
+      - name: Apply nullable VLAN fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('MainWindow.GooseSubscriber.cs')
+          source = path.read_text(encoding='utf-8')
+          old = '''        var vlan = frame.Vlan is null
+              ? "untagged"
+              : $"VID {frame.Vlan.VlanId} / PCP {frame.Vlan.PriorityCodePoint}";'''
+          new = '''        var vlan = frame.Vlan is { } vlanTag
+              ? $"VID {vlanTag.VlanId} / PCP {vlanTag.PriorityCodePoint}"
+              : "untagged";'''
+          if source.count(old) != 1:
+              raise SystemExit(f'Expected exactly one nullable VLAN block, found {source.count(old)}')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
 
-      - name: Setup .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
-
-      - name: Restore
-        shell: powershell
-        run: dotnet restore .\ArIED61850Tester.csproj 2>&1 | Tee-Object .\restore.log
-
-      - name: Build and capture diagnostics
-        shell: powershell
-        continue-on-error: true
-        run: dotnet build .\ArIED61850Tester.csproj -c Release --no-restore 2>&1 | Tee-Object .\build.log
-
-      - name: Upload diagnostic logs
-        uses: actions/upload-artifact@v4
-        with:
-          name: goose-subscriber-build-diagnostics
-          path: |
-            restore.log
-            build.log
-          retention-days: 1
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          rm -f .github/workflows/diagnose-goose-build.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: unwrap nullable GOOSE VLAN tag before display"
+          git push origin HEAD:feature/goose-subscriber
