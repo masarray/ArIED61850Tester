@@ -6,6 +6,11 @@ on:
     paths:
       - .github/compact-ui.patch.gz.b64
       - .github/workflows/apply-compact-ui.yml
+  pull_request:
+    branches: [ main ]
+    paths:
+      - .github/compact-ui.patch.gz.b64
+      - .github/workflows/apply-compact-ui.yml
 
 permissions:
   contents: write
