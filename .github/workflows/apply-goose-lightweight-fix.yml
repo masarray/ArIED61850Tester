@@ -27,6 +27,7 @@ jobs:
       - name: Commit generated changes
         shell: bash
         run: |
+          # Keep this as a one-shot source transformer; generated files are reviewed in the PR.
           if git diff --quiet -- Models/GooseSubscriberModels.cs Models/GoosePresentationModels.cs MainWindow.GooseTimeline.cs MainWindow.GooseSubscriber.cs Services/GooseSubscriberRuntime.cs Views/GooseSubscriberView.xaml .github/workflows/build.yml; then
             echo "No generated changes were required."
             exit 0
