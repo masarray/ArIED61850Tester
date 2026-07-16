@@ -8,9 +8,15 @@ public sealed class GooseAdapterOption
     public string Name { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string MacAddress { get; init; } = string.Empty;
+    public string FriendlyName { get; init; } = string.Empty;
     public string Selector => Index.ToString(System.Globalization.CultureInfo.InvariantCulture);
-    public string DisplayText => $"[{Index}] {(!string.IsNullOrWhiteSpace(Description) ? Description : Name)}";
-    public string DetailText => string.IsNullOrWhiteSpace(MacAddress) ? Name : $"{MacAddress} • {Name}";
+    public string DisplayText => $"[{Index}] {FirstReadable(FriendlyName, Description, Name, "Network adapter")}";
+    public string DetailText => string.Join(" • ", new[] { FriendlyName, Description, MacAddress, Name }
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.OrdinalIgnoreCase));
+
+    private static string FirstReadable(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? "Network adapter";
 }
 
 public sealed class GooseLeafValueRow : ObservableObject
@@ -24,6 +30,8 @@ public sealed class GooseLeafValueRow : ObservableObject
     private string _previousValue = string.Empty;
     private string _bindingSource = "Unbound";
     private bool _isChanged;
+    private bool _isHighlighted;
+    private DateTimeOffset _highlightUntilUtc;
 
     public int Order { get; init; }
     public int DataSetIndex { get; init; }
@@ -36,6 +44,7 @@ public sealed class GooseLeafValueRow : ObservableObject
     public string PreviousValue { get => _previousValue; set => Set(ref _previousValue, value ?? string.Empty); }
     public string BindingSource { get => _bindingSource; set => Set(ref _bindingSource, string.IsNullOrWhiteSpace(value) ? "Unbound" : value); }
     public bool IsChanged { get => _isChanged; set => Set(ref _isChanged, value); }
+    public bool IsHighlighted { get => _isHighlighted; private set => Set(ref _isHighlighted, value); }
     public string TypeText => string.Join(" / ", new[] { Cdc, BType }.Where(item => !string.IsNullOrWhiteSpace(item)));
 
     public void Apply(GooseLeafValueSnapshot snapshot)
@@ -49,7 +58,20 @@ public sealed class GooseLeafValueRow : ObservableObject
         Value = snapshot.Value;
         BindingSource = snapshot.BindingSource;
         IsChanged = snapshot.IsChanged;
+        if (snapshot.IsChanged)
+        {
+            _highlightUntilUtc = DateTimeOffset.UtcNow.AddSeconds(5);
+            IsHighlighted = true;
+        }
         Raise(nameof(TypeText));
+    }
+
+    public bool ExpireHighlight(DateTimeOffset nowUtc)
+    {
+        if (!IsHighlighted || nowUtc < _highlightUntilUtc)
+            return false;
+        IsHighlighted = false;
+        return true;
     }
 }
 
