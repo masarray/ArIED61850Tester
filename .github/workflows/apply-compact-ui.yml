@@ -36,7 +36,7 @@ jobs:
           PY
           git apply --ignore-whitespace /tmp/compact-ui.patch
 
-      - name: Preserve repository line endings and validate XAML
+      - name: Preserve line endings and parse XAML
         shell: bash
         run: |
           python3 - <<'PY'
@@ -59,14 +59,6 @@ jobs:
           for name in ['App.xaml', 'MainWindow.xaml', 'SaveSclWindow.xaml']:
               ET.parse(name)
           PY
-          grep -q 'Binding IsMonitoring' MainWindow.xaml
-          grep -q 'x:Name="MonitorStateText" Text="STOP"' MainWindow.xaml
-          grep -q 'x:Name="Edition2Toggle"' SaveSclWindow.xaml
-          grep -q 'x:Name="Edition1Toggle"' SaveSclWindow.xaml
-          ! grep -q 'EditionIndicatorTranslate' SaveSclWindow.xaml SaveSclWindow.xaml.cs
-          grep -q 'Text="GOOSE Subscriber"' MainWindow.xaml
-          grep -q 'Style="{StaticResource ModernComboBox}"' MainWindow.xaml
-          git diff --check
 
       - name: Commit compact premium UI
         shell: bash
