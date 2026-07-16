@@ -3,6 +3,8 @@ name: ARSAS online workspace compile diagnostics
 on:
   push:
     branches: [ fix/arsas-real-online-workspace ]
+  pull_request:
+    branches: [ main ]
 
 permissions:
   contents: read
