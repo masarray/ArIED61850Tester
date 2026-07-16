@@ -1,18 +1,19 @@
 name: Apply GOOSE append and modeless correction
 
 on:
-  push:
-    branches:
-      - fix/goose-append-modeless-selection-v2
+  pull_request:
+    branches: [ main ]
     paths:
       - scripts/apply-goose-append-modeless-fix.py
       - .github/workflows/apply-goose-append-modeless-fix.yml
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   apply:
+    if: github.head_ref == 'fix/goose-append-modeless-selection-v2'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
@@ -21,13 +22,18 @@ jobs:
           ref: fix/goose-append-modeless-selection-v2
           fetch-depth: 0
 
-      - name: Apply requested corrections
-        run: python3 scripts/apply-goose-append-modeless-fix.py
+      - name: Apply requested corrections once
+        shell: bash
+        run: |
+          if grep -q 'GooseEvents.Insert(0, eventRow)' MainWindow.GooseTimeline.cs; then
+            python3 scripts/apply-goose-append-modeless-fix.py
+          else
+            echo "GOOSE correction is already applied."
+          fi
 
       - name: Commit generated changes
         shell: bash
         run: |
-          # This workflow is intentionally one-shot and is removed by the production PR.
           if git diff --quiet -- MainWindow.GooseTimeline.cs MainWindow.GooseSubscriber.cs MainWindow.xaml.cs MainWindow.xaml App.xaml SignalSelectionWizardWindow.xaml.cs Views/GooseSubscriberLiteView.xaml .github/workflows/build.yml; then
             echo "No generated changes were required."
             exit 0
