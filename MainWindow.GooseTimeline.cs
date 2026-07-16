@@ -4,7 +4,6 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Threading;
 using ArIED61850Tester.Models;
 using ArIED61850Tester.Services;
 using ArIED61850Tester.Views;
@@ -13,13 +12,14 @@ namespace ArIED61850Tester;
 
 public partial class MainWindow
 {
-    private const int MaxGooseTimelineEvents = 1000;
-    private const int MaxPendingGooseTimelineEvents = 4096;
+    private const int MaxGooseTimelineEvents = 300;
+    private const int MaxPendingGooseTimelineEvents = 512;
 
     private readonly ConcurrentQueue<GooseSubscriberFrameSnapshot> _pendingGooseTimeline = new();
     private readonly Dictionary<string, DateTimeOffset> _lastGooseTimelineTimestamp = new(StringComparer.OrdinalIgnoreCase);
     private GooseEventRow? _selectedGooseEvent;
     private bool _goosePresentationInstalled;
+    private DateTimeOffset _nextGooseHighlightExpiryCheckUtc = DateTimeOffset.MinValue;
 
     public BulkObservableCollection<GooseEventRow> GooseEvents { get; } = new();
 
@@ -50,23 +50,23 @@ public partial class MainWindow
             new RoutedEventHandler(OnMainWindowLoadedForGoosePresentation));
         EventManager.RegisterClassHandler(
             typeof(MainWindow),
-            GooseSubscriberView.RefreshAdaptersRequestedEvent,
+            GooseSubscriberLiteView.RefreshAdaptersRequestedEvent,
             new RoutedEventHandler(OnRefreshGooseAdaptersRequested));
         EventManager.RegisterClassHandler(
             typeof(MainWindow),
-            GooseSubscriberView.RefreshModelsRequestedEvent,
+            GooseSubscriberLiteView.RefreshModelsRequestedEvent,
             new RoutedEventHandler(OnRefreshGooseModelsRequested));
         EventManager.RegisterClassHandler(
             typeof(MainWindow),
-            GooseSubscriberView.StartRequestedEvent,
+            GooseSubscriberLiteView.StartRequestedEvent,
             new RoutedEventHandler(OnStartGooseRequested));
         EventManager.RegisterClassHandler(
             typeof(MainWindow),
-            GooseSubscriberView.StopRequestedEvent,
+            GooseSubscriberLiteView.StopRequestedEvent,
             new RoutedEventHandler(OnStopGooseRequested));
         EventManager.RegisterClassHandler(
             typeof(MainWindow),
-            GooseSubscriberView.ClearRequestedEvent,
+            GooseSubscriberLiteView.ClearRequestedEvent,
             new RoutedEventHandler(OnClearGooseRequested));
     }
 
@@ -87,7 +87,7 @@ public partial class MainWindow
         if (gooseTab is null)
             return;
 
-        gooseTab.Content = new GooseSubscriberView { DataContext = this };
+        gooseTab.Content = new GooseSubscriberLiteView { DataContext = this };
         _gooseSubscriberRuntime.FrameReceived += GooseTimeline_FrameReceived;
         _uiFlushTimer.Tick += GooseTimelineUiFlushTimer_Tick;
         PropertyChanged += GoosePresentation_PropertyChanged;
@@ -167,15 +167,18 @@ public partial class MainWindow
 
     private void GooseTimelineUiFlushTimer_Tick(object? sender, EventArgs args)
     {
-        if (_pendingGooseTimeline.IsEmpty)
+        var nowUtc = DateTimeOffset.UtcNow;
+        if (nowUtc >= _nextGooseHighlightExpiryCheckUtc)
         {
-            Raise(nameof(GoosePublisherCountText));
-            Raise(nameof(GooseSelectedLeafCountText));
-            return;
+            ExpireGooseHighlights(nowUtc);
+            _nextGooseHighlightExpiryCheckUtc = nowUtc.AddSeconds(1);
         }
 
+        if (_pendingGooseTimeline.IsEmpty)
+            return;
+
         var processed = 0;
-        while (processed < 256 && _pendingGooseTimeline.TryDequeue(out var captured))
+        while (processed < 48 && _pendingGooseTimeline.TryDequeue(out var captured))
         {
             var stream = BuildGooseStreamSnapshot(captured, _gooseBindingCatalog);
             var eventRow = BuildGooseEventRow(captured, stream);
@@ -188,6 +191,18 @@ public partial class MainWindow
         }
 
         RaiseGoosePresentationState();
+    }
+
+    private void ExpireGooseHighlights(DateTimeOffset nowUtc)
+    {
+        foreach (var eventRow in GooseEvents)
+            eventRow.ExpireHighlight(nowUtc);
+
+        foreach (var stream in GooseStreams)
+        {
+            foreach (var leaf in stream.Leaves)
+                leaf.ExpireHighlight(nowUtc);
+        }
     }
 
     private GooseEventRow BuildGooseEventRow(
@@ -256,8 +271,9 @@ public partial class MainWindow
             {
                 var previous = string.IsNullOrWhiteSpace(leaf.PreviousValue)
                     ? "-"
-                    : ShortenGooseText(leaf.PreviousValue, 30);
-                return $"{leaf.SignalName}: {previous} → {ShortenGooseText(leaf.Value, 36)}";
+                    : ShortenGooseText(GooseEngineeringValueFormatter.Format(leaf.PreviousValue), 30);
+                var current = GooseEngineeringValueFormatter.Format(leaf.Value);
+                return $"{leaf.SignalName}: {previous} → {ShortenGooseText(current, 36)}";
             })
             .ToArray();
         if (changed.Length > 0)
@@ -322,6 +338,7 @@ public partial class MainWindow
         {
         }
         _lastGooseTimelineTimestamp.Clear();
+        _nextGooseHighlightExpiryCheckUtc = DateTimeOffset.MinValue;
         GooseEvents.Clear();
         SelectedGooseEvent = null;
         RaiseGoosePresentationState();
