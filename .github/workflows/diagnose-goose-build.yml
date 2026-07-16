@@ -28,17 +28,20 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           path = Path('MainWindow.GooseSubscriber.cs')
           source = path.read_text(encoding='utf-8')
-          old = '''        var vlan = frame.Vlan is null
-              ? "untagged"
-              : $"VID {frame.Vlan.VlanId} / PCP {frame.Vlan.PriorityCodePoint}";'''
-          new = '''        var vlan = frame.Vlan is { } vlanTag
+          pattern = re.compile(
+              r'        var vlan = frame\.Vlan is null\r?\n'
+              r'\s*\? "untagged"\r?\n'
+              r'\s*: \$"VID \{frame\.Vlan\.VlanId\} / PCP \{frame\.Vlan\.PriorityCodePoint\}";')
+          replacement = '''        var vlan = frame.Vlan is { } vlanTag
               ? $"VID {vlanTag.VlanId} / PCP {vlanTag.PriorityCodePoint}"
               : "untagged";'''
-          if source.count(old) != 1:
-              raise SystemExit(f'Expected exactly one nullable VLAN block, found {source.count(old)}')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          updated, count = pattern.subn(replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one nullable VLAN block, found {count}')
+          path.write_text(updated, encoding='utf-8')
           PY
 
       - name: Commit source fix
