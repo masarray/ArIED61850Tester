@@ -14,6 +14,8 @@ public partial class MainWindow
         UpdateDemoAnalogValues();
         if (_demoTick % 3 == 0)
             GenerateDemoProcessEvent();
+        if (_demoTick % 4 == 0)
+            GenerateRunningCommunicationDiagnostic();
         RaiseWorkspaceCounts();
     }
 
@@ -36,8 +38,8 @@ public partial class MainWindow
             state.Point.Value = formatted;
             state.Point.Quality = "Good";
             state.Point.DeviceTimestamp = timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-            state.Point.SourceMode = _demoTick % 5 == 0 ? "MMS validation read" : state.Device.AcquisitionMode;
-            state.Point.Reason = _demoTick % 5 == 0 ? "verification" : "dupd";
+            state.Point.SourceMode = state.Device.AcquisitionMode;
+            state.Point.Reason = "dupd";
             state.Point.Sequence++;
             state.Signal.Value = formatted;
             state.Signal.Quality = state.Point.Quality;
@@ -78,12 +80,72 @@ public partial class MainWindow
         _reportPulseUntil[state.Device.DeviceId] = DateTime.UtcNow.AddMilliseconds(650);
         _pointHighlightUntil[state.Point.PointKey] = DateTime.UtcNow.AddSeconds(3);
 
-        var demoEvent = CreateDemoEvent(state, oldValue, nextValue, timestamp);
-        Events.AddRange(new[] { demoEvent });
+        var processEvent = CreateDemoEvent(state, oldValue, nextValue, timestamp);
+        Events.AddRange(new[] { processEvent });
         Events.TrimStart(10000);
         if (MainTabs.SelectedIndex != 2)
             state.Device.AddUnreadEvents(1);
-        LastStatusText = $"DEMO EVENT • {state.Device.Name} / {state.Point.SignalName} = {nextValue}";
+
+        LastStatusText = $"SOE • {state.Device.Name} • {state.Point.IecTelegram} = {nextValue} • Quality Good • {state.Device.AcquisitionMode}";
+    }
+
+    private void GenerateRunningCommunicationDiagnostic()
+    {
+        var activeDevices = Devices.Where(device => device.IsConnected).ToArray();
+        if (activeDevices.Length == 0)
+            return;
+
+        var device = activeDevices[(_demoTick / 4) % activeDevices.Length];
+        var devicePoints = _demoPointStates.Where(state => ReferenceEquals(state.Device, device)).ToArray();
+        var point = devicePoints.Length == 0 ? null : devicePoints[_demoTick % devicePoints.Length].Point;
+        var reportName = device.AcquisitionMode.StartsWith("Dynamic: ", StringComparison.OrdinalIgnoreCase)
+            ? device.AcquisitionMode["Dynamic: ".Length..]
+            : device.AcquisitionMode;
+        var cycle = (_demoTick / 4) % 5;
+
+        var entry = cycle switch
+        {
+            0 => new DiagnosticEntry
+            {
+                Time = DateTime.Now,
+                Level = "INFO",
+                Source = "MMS",
+                Message = $"{device.Name} association healthy on {device.IpAddress}:102; confirmed response in {_demoRandom.Next(7, 24)} ms."
+            },
+            1 => new DiagnosticEntry
+            {
+                Time = DateTime.Now,
+                Level = "INFO",
+                Source = "Reporting",
+                Message = $"{device.Name} {reportName}: report received; reason=dupd; sqNum={_demoRandom.Next(1200, 9800)}; quality Good."
+            },
+            2 => new DiagnosticEntry
+            {
+                Time = DateTime.Now,
+                Level = "INFO",
+                Source = "Process",
+                Message = point == null
+                    ? $"{device.Name} process values refreshed with quality Good."
+                    : $"{device.Name} {point.IecTelegram}: value={point.Value}; quality={point.Quality}; timestamp accepted."
+            },
+            3 => new DiagnosticEntry
+            {
+                Time = DateTime.Now,
+                Level = "INFO",
+                Source = "GOOSE",
+                Message = $"GOOSE supervision healthy; {_demoGooseStates.Count} publishers active; stNum/sqNum continuity and TAL valid."
+            },
+            _ => new DiagnosticEntry
+            {
+                Time = DateTime.Now,
+                Level = "INFO",
+                Source = "Control",
+                Message = $"{device.Name} CTRL/CSWI1.Pos resolved as DPC SBO Enhanced; status and command termination channels available."
+            }
+        };
+
+        Logs.AddRange(new[] { entry });
+        Logs.TrimStart(2000);
     }
 
     private Iec61850EventEntry CreateDemoEvent(DemoPointState state, string oldValue, string newValue, DateTime timestamp)
