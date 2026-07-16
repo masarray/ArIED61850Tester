@@ -1,0 +1,46 @@
+name: Diagnose GOOSE Subscriber build
+
+on:
+  push:
+    branches: [ feature/goose-subscriber ]
+    paths:
+      - .github/workflows/diagnose-goose-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-log:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/goose-subscriber
+
+      - name: Checkout ARIEC61850 engine
+        shell: powershell
+        run: git clone --quiet --depth 1 --branch main https://github.com/masarray/ARIEC61850.git ..\ARIEC61850
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        shell: powershell
+        run: dotnet restore .\ArIED61850Tester.csproj 2>&1 | Tee-Object .\restore.log
+
+      - name: Build and capture diagnostics
+        shell: powershell
+        continue-on-error: true
+        run: dotnet build .\ArIED61850Tester.csproj -c Release --no-restore 2>&1 | Tee-Object .\build.log
+
+      - name: Upload diagnostic logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: goose-subscriber-build-diagnostics
+          path: |
+            restore.log
+            build.log
+          retention-days: 1
