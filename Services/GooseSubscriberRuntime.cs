@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.NetworkInformation;
+using System.Text.RegularExpressions;
 using AR.Iec61850.Goose;
 using AR.Iec61850.Monitoring;
 using AR.Iec61850.Scl;
@@ -58,15 +60,23 @@ public sealed class GooseSubscriberRuntime : IAsyncDisposable
     }
 
     public IReadOnlyList<GooseAdapterOption> ListAdapters()
-        => NpcapAdapterCatalog.ListAdapters()
-            .Select(adapter => new GooseAdapterOption
+    {
+        var windowsAdapters = NetworkInterface.GetAllNetworkInterfaces();
+        return NpcapAdapterCatalog.ListAdapters()
+            .Select(adapter =>
             {
-                Index = adapter.Index,
-                Name = adapter.Name,
-                Description = adapter.Description,
-                MacAddress = adapter.MacAddress?.ToString() ?? string.Empty
+                var macAddress = adapter.MacAddress?.ToString() ?? string.Empty;
+                return new GooseAdapterOption
+                {
+                    Index = adapter.Index,
+                    Name = adapter.Name,
+                    Description = adapter.Description,
+                    MacAddress = macAddress,
+                    FriendlyName = ResolveAdapterFriendlyName(adapter.Name, adapter.Description, macAddress, windowsAdapters)
+                };
             })
             .ToArray();
+    }
 
     public Task StartAsync(
         string adapterSelector,
@@ -193,6 +203,52 @@ public sealed class GooseSubscriberRuntime : IAsyncDisposable
             PublishStatus(false, finalLevel == "ERROR" ? $"{finalMessage} • {suffix}" : $"GOOSE subscriber stopped • {suffix}", finalLevel);
         }
     }
+
+    private static string ResolveAdapterFriendlyName(
+        string captureName,
+        string captureDescription,
+        string macAddress,
+        IReadOnlyList<NetworkInterface> windowsAdapters)
+    {
+        var normalizedMac = NormalizeMac(macAddress);
+        var captureId = ExtractAdapterId(captureName);
+        var match = windowsAdapters.FirstOrDefault(adapter =>
+            (!string.IsNullOrWhiteSpace(normalizedMac) && NormalizeMac(adapter.GetPhysicalAddress().ToString()) == normalizedMac) ||
+            (!string.IsNullOrWhiteSpace(captureId) && adapter.Id.Equals(captureId, StringComparison.OrdinalIgnoreCase)));
+
+        if (match is not null)
+        {
+            var windowsName = CleanAdapterLabel(match.Name);
+            if (!string.IsNullOrWhiteSpace(windowsName))
+                return windowsName;
+            var windowsDescription = CleanAdapterLabel(match.Description);
+            if (!string.IsNullOrWhiteSpace(windowsDescription))
+                return windowsDescription;
+        }
+
+        return FirstAdapterLabel(CleanAdapterLabel(captureDescription), CleanAdapterLabel(captureName), "Network adapter");
+    }
+
+    private static string ExtractAdapterId(string? value)
+    {
+        var match = Regex.Match(value ?? string.Empty, @"\{(?<id>[0-9A-Fa-f-]{36})\}");
+        return match.Success ? match.Groups["id"].Value : string.Empty;
+    }
+
+    private static string NormalizeMac(string? value)
+        => Regex.Replace(value ?? string.Empty, "[^0-9A-Fa-f]", string.Empty).ToUpperInvariant();
+
+    private static string CleanAdapterLabel(string? value)
+    {
+        var text = value?.Trim() ?? string.Empty;
+        if (text.Equals("ArIED61850", StringComparison.OrdinalIgnoreCase) ||
+            text.Equals("ArIED 61850", StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+        return text;
+    }
+
+    private static string FirstAdapterLabel(params string[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "Network adapter";
 
     private void PublishStatus(bool running, string message, string level = "INFO")
         => StatusChanged?.Invoke(new GooseSubscriberStatusSnapshot
