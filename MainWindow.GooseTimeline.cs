@@ -1,8 +1,13 @@
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
 using ArIED61850Tester.Models;
 using ArIED61850Tester.Services;
+using ArIED61850Tester.Views;
 
 namespace ArIED61850Tester;
 
@@ -14,6 +19,7 @@ public partial class MainWindow
     private readonly ConcurrentQueue<GooseSubscriberFrameSnapshot> _pendingGooseTimeline = new();
     private readonly Dictionary<string, DateTimeOffset> _lastGooseTimelineTimestamp = new(StringComparer.OrdinalIgnoreCase);
     private GooseEventRow? _selectedGooseEvent;
+    private bool _goosePresentationInstalled;
 
     public BulkObservableCollection<GooseEventRow> GooseEvents { get; } = new();
 
@@ -35,7 +41,109 @@ public partial class MainWindow
     public string GooseSelectedLeafCountText => $"{SelectedGooseStream?.Leaves.Count ?? 0:N0} values";
     public Visibility GooseNoEventsVisibility => GooseEvents.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-    private void QueueGooseTimelineEvent(GooseSubscriberFrameSnapshot snapshot)
+    [ModuleInitializer]
+    internal static void RegisterGoosePresentationIntegration()
+    {
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            FrameworkElement.LoadedEvent,
+            new RoutedEventHandler(OnMainWindowLoadedForGoosePresentation));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            GooseSubscriberView.RefreshAdaptersRequestedEvent,
+            new RoutedEventHandler(OnRefreshGooseAdaptersRequested));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            GooseSubscriberView.RefreshModelsRequestedEvent,
+            new RoutedEventHandler(OnRefreshGooseModelsRequested));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            GooseSubscriberView.StartRequestedEvent,
+            new RoutedEventHandler(OnStartGooseRequested));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            GooseSubscriberView.StopRequestedEvent,
+            new RoutedEventHandler(OnStopGooseRequested));
+        EventManager.RegisterClassHandler(
+            typeof(MainWindow),
+            GooseSubscriberView.ClearRequestedEvent,
+            new RoutedEventHandler(OnClearGooseRequested));
+    }
+
+    private static void OnMainWindowLoadedForGoosePresentation(object sender, RoutedEventArgs args)
+    {
+        if (sender is MainWindow window && ReferenceEquals(args.OriginalSource, window))
+            window.InstallGoosePresentationWorkspace();
+    }
+
+    private void InstallGoosePresentationWorkspace()
+    {
+        if (_goosePresentationInstalled)
+            return;
+
+        var gooseTab = MainTabs.Items
+            .OfType<TabItem>()
+            .FirstOrDefault(item => string.Equals(item.Header?.ToString(), "GOOSE Subscriber", StringComparison.Ordinal));
+        if (gooseTab is null)
+            return;
+
+        gooseTab.Content = new GooseSubscriberView { DataContext = this };
+        _gooseSubscriberRuntime.FrameReceived += GooseTimeline_FrameReceived;
+        _uiFlushTimer.Tick += GooseTimelineUiFlushTimer_Tick;
+        PropertyChanged += GoosePresentation_PropertyChanged;
+        _goosePresentationInstalled = true;
+        RaiseGoosePresentationState();
+    }
+
+    private void GoosePresentation_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(SelectedGooseStream))
+            Raise(nameof(GooseSelectedLeafCountText));
+    }
+
+    private static void OnRefreshGooseAdaptersRequested(object sender, RoutedEventArgs args)
+    {
+        if (sender is not MainWindow window)
+            return;
+        window.RefreshGooseAdapters_Click(window, args);
+        args.Handled = true;
+    }
+
+    private static void OnRefreshGooseModelsRequested(object sender, RoutedEventArgs args)
+    {
+        if (sender is not MainWindow window)
+            return;
+        window.RefreshGooseModels_Click(window, args);
+        args.Handled = true;
+    }
+
+    private static void OnStartGooseRequested(object sender, RoutedEventArgs args)
+    {
+        if (sender is not MainWindow window)
+            return;
+        window.ResetGooseTimelineUi();
+        window.StartGooseSubscriber_Click(window, args);
+        args.Handled = true;
+    }
+
+    private static void OnStopGooseRequested(object sender, RoutedEventArgs args)
+    {
+        if (sender is not MainWindow window)
+            return;
+        window.StopGooseSubscriber_Click(window, args);
+        args.Handled = true;
+    }
+
+    private static void OnClearGooseRequested(object sender, RoutedEventArgs args)
+    {
+        if (sender is not MainWindow window)
+            return;
+        window.ResetGooseTimelineUi();
+        window.ClearGooseSubscriber_Click(window, args);
+        args.Handled = true;
+    }
+
+    private void GooseTimeline_FrameReceived(GooseSubscriberFrameSnapshot snapshot)
     {
         if (!IsMeaningfulGooseTimelineEvent(snapshot))
             return;
@@ -57,8 +165,15 @@ public partial class MainWindow
                 !status.Contains("Normal", StringComparison.OrdinalIgnoreCase));
     }
 
-    private void FlushGooseTimelineUi()
+    private void GooseTimelineUiFlushTimer_Tick(object? sender, EventArgs args)
     {
+        if (_pendingGooseTimeline.IsEmpty)
+        {
+            Raise(nameof(GoosePublisherCountText));
+            Raise(nameof(GooseSelectedLeafCountText));
+            return;
+        }
+
         var processed = 0;
         while (processed < 256 && _pendingGooseTimeline.TryDequeue(out var captured))
         {
@@ -139,7 +254,9 @@ public partial class MainWindow
             .Take(2)
             .Select(leaf =>
             {
-                var previous = string.IsNullOrWhiteSpace(leaf.PreviousValue) ? "-" : ShortenGooseText(leaf.PreviousValue, 30);
+                var previous = string.IsNullOrWhiteSpace(leaf.PreviousValue)
+                    ? "-"
+                    : ShortenGooseText(leaf.PreviousValue, 30);
                 return $"{leaf.SignalName}: {previous} → {ShortenGooseText(leaf.Value, 36)}";
             })
             .ToArray();
@@ -208,11 +325,6 @@ public partial class MainWindow
         GooseEvents.Clear();
         SelectedGooseEvent = null;
         RaiseGoosePresentationState();
-    }
-
-    private void RaiseGoosePresentationSelection()
-    {
-        Raise(nameof(GooseSelectedLeafCountText));
     }
 
     private void RaiseGoosePresentationState()
