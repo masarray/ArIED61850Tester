@@ -37,4 +37,4 @@ foreach ($property in $requiredTwoWayBindings) {
     }
 }
 
-Write-Host 'Fault record binding modes are explicit and valid.'
+Write-Host 'Fault record binding modes are explicit and valid.' -ForegroundColor Green
