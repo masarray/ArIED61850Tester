@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feat/fault-record-download
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
