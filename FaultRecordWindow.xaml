@@ -91,9 +91,9 @@
                 <StackPanel>
                     <TextBlock Text="IEC 61850 Fault Record Transfer" FontSize="18" FontWeight="SemiBold" Foreground="#17243A"/>
                     <TextBlock Margin="0,3,0,0" FontSize="12.5" Foreground="#607089">
-                        <Run Text="{Binding DeviceName, Mode=OneWay}"/>
+                        <Run Text="{Binding DeviceName, Mode=OneTime}"/>
                         <Run Text="  •  "/>
-                        <Run Text="{Binding EndpointText, Mode=OneWay}"/>
+                        <Run Text="{Binding EndpointText, Mode=OneTime}"/>
                     </TextBlock>
                 </StackPanel>
                 <Border Grid.Column="1" Background="#E8F0FE" CornerRadius="12" Padding="10,5" VerticalAlignment="Center">
