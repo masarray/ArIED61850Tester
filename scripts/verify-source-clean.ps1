@@ -151,4 +151,6 @@ if ($Problems.Count -gt 0) {
     throw "ARSAS source tree failed clean-room validation with $($Problems.Count) problem(s)."
 }
 
+& (Join-Path $PSScriptRoot "verify-fault-record-bindings.ps1")
+
 Write-Host "All Git-tracked ARSAS content passed source, website, external-IP, and current-license checks." -ForegroundColor Green
