@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 from pathlib import Path
@@ -25,6 +26,8 @@ QUICK_START = "https://github.com/masarray/arsas#quick-start"
 DIRECT_INSTALLER = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe"
 DIRECT_PORTABLE = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Portable.zip"
 DIRECT_CHECKSUMS = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-SHA256SUMS.txt"
+APP_ICON_SOURCE = ROOT / "Assets" / "app-icon-256.png"
+APP_ICON_RELATIVE = Path("assets/app-icon.png")
 
 PROTECTED_DOWNLOADS = {
     DIRECT_INSTALLER: "__ARSAS_PUBLIC_INSTALLER__",
@@ -44,6 +47,14 @@ def rewrite_public_html(text: str) -> str:
     text = text.replace(
         '<link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin />',
         "",
+    )
+
+    # Use the exact application icon as the browser and installed-web-app identity.
+    text = re.sub(
+        r'<link\s+rel="icon"\s+href="assets/favicon\.svg"\s+type="image/svg\+xml"\s*/?>',
+        '<link rel="icon" href="assets/app-icon.png" type="image/png" sizes="256x256" />\n  <link rel="apple-touch-icon" href="assets/app-icon.png" />',
+        text,
+        flags=re.IGNORECASE,
     )
 
     # Product CTAs must start the stable installer download, not open the source repository.
@@ -90,10 +101,32 @@ def rewrite_public_html(text: str) -> str:
     return text
 
 
+def install_app_icon(output: Path) -> None:
+    if not APP_ICON_SOURCE.exists():
+        raise SystemExit(f"ARSAS app icon was not found: {APP_ICON_SOURCE}")
+
+    destination = output / APP_ICON_RELATIVE
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(APP_ICON_SOURCE, destination)
+
+    manifest_path = output / "site.webmanifest"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["icons"] = [
+        {
+            "src": APP_ICON_RELATIVE.as_posix(),
+            "sizes": "256x256",
+            "type": "image/png",
+            "purpose": "any",
+        }
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def build(source: Path, output: Path) -> None:
     if output.exists():
         shutil.rmtree(output)
     shutil.copytree(source, output)
+    install_app_icon(output)
 
     replacements = 0
     for page in output.glob("*.html"):
@@ -104,6 +137,7 @@ def build(source: Path, output: Path) -> None:
             page.write_text(rewritten, encoding="utf-8")
 
     required = [output / path for path in (
+        "assets/app-icon.png",
         "assets/social-card.png",
         "assets/screenshots/arsas-first-launch.webp",
         "assets/screenshots/arsas-multi-ied.webp",
@@ -123,6 +157,10 @@ def build(source: Path, output: Path) -> None:
         raise SystemExit("Remote screenshot URL remains in deployable landing artifact")
     if SOCIAL_SVG in deployed_text:
         raise SystemExit("SVG social card remains referenced in deployable landing artifact")
+    if "assets/favicon.svg" in deployed_text:
+        raise SystemExit("Legacy SVG favicon remains referenced in deployable landing artifact")
+    if 'href="assets/app-icon.png"' not in deployed_text:
+        raise SystemExit("ARSAS app icon is not referenced as the deployable favicon")
     if replacements == 0:
         raise SystemExit("Landing build made no expected transformations")
 

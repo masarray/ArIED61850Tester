@@ -22,6 +22,7 @@ EXPECTED_PAGES = (
 )
 
 EXPECTED_MEDIA = (
+    "assets/app-icon.png",
     "assets/social-card.png",
     "assets/screenshots/arsas-first-launch.webp",
     "assets/screenshots/arsas-multi-ied.webp",
@@ -35,12 +36,14 @@ DIRECT_INSTALLER = "https://github.com/masarray/arsas/releases/latest/download/A
 DIRECT_PORTABLE = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Portable.zip"
 DIRECT_CHECKSUMS = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-SHA256SUMS.txt"
 ALLOWED_GITHUB_URLS = {DIRECT_INSTALLER, DIRECT_PORTABLE, DIRECT_CHECKSUMS}
+APP_ICON = "assets/app-icon.png"
 
 
 class AssetParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.refs: list[str] = []
+        self.icons: list[dict[str, str | None]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
@@ -48,6 +51,8 @@ class AssetParser(HTMLParser):
             value = values.get(key)
             if value:
                 self.refs.append(value)
+        if tag == "link" and "icon" in (values.get("rel") or "").lower():
+            self.icons.append(values)
 
 
 def png_size(path: Path) -> tuple[int, int]:
@@ -93,6 +98,31 @@ def validate_updater_manifest(site: Path, errors: list[str]) -> None:
         errors.append("latest.json: installer size is outside the accepted range")
 
 
+def validate_web_manifest(site: Path, errors: list[str]) -> None:
+    path = site / "site.webmanifest"
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"site.webmanifest: {exc}")
+        return
+
+    icons = manifest.get("icons")
+    if not isinstance(icons, list) or len(icons) != 1:
+        errors.append("site.webmanifest: expected one canonical ARSAS app icon")
+        return
+
+    icon = icons[0]
+    if not isinstance(icon, dict):
+        errors.append("site.webmanifest: icon entry is invalid")
+        return
+    if icon.get("src") != APP_ICON:
+        errors.append("site.webmanifest: icon must use assets/app-icon.png")
+    if icon.get("sizes") != "256x256":
+        errors.append("site.webmanifest: app icon size must be 256x256")
+    if icon.get("type") != "image/png":
+        errors.append("site.webmanifest: app icon type must be image/png")
+
+
 def main() -> int:
     site = Path(sys.argv[1] if len(sys.argv) > 1 else "_site").resolve()
     errors: list[str] = []
@@ -116,9 +146,20 @@ def main() -> int:
             if ref.startswith("assets/") and not (site / ref.split("?", 1)[0].split("#", 1)[0]).exists():
                 errors.append(f"{page_name}: missing local asset {ref}")
 
+        favicon = [icon for icon in parser.icons if (icon.get("rel") or "").lower() == "icon"]
+        if len(favicon) != 1:
+            errors.append(f"{page_name}: expected exactly one favicon link")
+        elif favicon[0].get("href") != APP_ICON or favicon[0].get("type") != "image/png":
+            errors.append(f"{page_name}: favicon must use the ARSAS PNG app icon")
+
+        touch_icon = [icon for icon in parser.icons if (icon.get("rel") or "").lower() == "apple-touch-icon"]
+        if len(touch_icon) != 1 or touch_icon[0].get("href") != APP_ICON:
+            errors.append(f"{page_name}: apple-touch-icon must use the ARSAS app icon")
+
     forbidden_text = (
         "raw.githubusercontent.com/masarray/arsas/main/Assets/screenshot",
         "https://masarray.github.io/arsas/assets/social-card.svg",
+        'href="assets/favicon.svg"',
         '"codeRepository"',
         ">Repository</a>",
         ">Issues</a>",
@@ -149,6 +190,14 @@ def main() -> int:
         if "download.js" in text:
             errors.append("download page still depends on repository-aware JavaScript")
 
+    app_icon = site / APP_ICON
+    if app_icon.exists():
+        try:
+            if png_size(app_icon) != (256, 256):
+                errors.append(f"app-icon.png must be 256x256, found {png_size(app_icon)}")
+        except ValueError as exc:
+            errors.append(f"app-icon.png: {exc}")
+
     social = site / "assets/social-card.png"
     if social.exists():
         try:
@@ -157,6 +206,7 @@ def main() -> int:
         except ValueError as exc:
             errors.append(f"social-card.png: {exc}")
 
+    validate_web_manifest(site, errors)
     validate_updater_manifest(site, errors)
 
     if errors:
@@ -165,7 +215,7 @@ def main() -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
 
-    print("Public landing validation passed: landing-only navigation, direct downloads, and the verified updater manifest are enforced.")
+    print("Public landing validation passed: ARSAS app-icon branding, landing-only navigation, direct downloads, and the verified updater manifest are enforced.")
     return 0
 
 
