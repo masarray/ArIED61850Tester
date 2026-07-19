@@ -1,106 +1,33 @@
-name: Temporary apply RCB export and IED card fix
+name: Temporary apply IED card layout fix
 
 on:
-  pull_request:
-    branches: [ main ]
+  push:
+    branches: [ fix/rcb-export-and-ied-card-layout ]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: fix/rcb-export-and-ied-card-layout
           fetch-depth: 0
 
-      - name: Apply production fixes
+      - name: Install adaptive IED card action bar
         shell: python
         run: |
           from pathlib import Path
           import re
 
-          def replace_once(text, pattern, replacement, label, flags=0):
-              updated, count = re.subn(pattern, replacement, text, count=1, flags=flags)
-              if count != 1:
-                  raise SystemExit(f'{label}: expected one match, found {count}')
-              return updated
-
-          code_path = Path('MainWindow.RcbExport.cs')
-          code = code_path.read_text(encoding='utf-8')
-
-          if 'MmsRcbAvailabilityResult? latestAvailability = null;' not in code:
-              code = code.replace(
-                  '        Exception? sourceInspectionError = null;\n',
-                  '        Exception? sourceInspectionError = null;\n        MmsRcbAvailabilityResult? latestAvailability = null;\n',
-                  1)
-
-          code = re.sub(
-              r'var availability = await _rcbAvailabilityProbe\.CheckAsync\(device, cancellationToken\)\.ConfigureAwait\(false\);\s*return BuildRcbExportRows\(device, sourceInventory, availability\);',
-              'latestAvailability = await _rcbAvailabilityProbe.CheckAsync(device, cancellationToken).ConfigureAwait(false);\n                    return BuildRcbExportRows(device, sourceInventory, latestAvailability);',
-              code,
-              count=1)
-
-          code = code.replace(
-              'ExportLegacySasRcbAsync(device, row, schema, outputPath, cancellationToken)',
-              'ExportLegacySasRcbAsync(device, row, schema, outputPath, latestAvailability, cancellationToken)',
-              1)
-
-          code = code.replace(
-              '                DataSetDetail = dataSet == null ? "Unresolved DataSet" : "Static DataSet • live discovery",',
-              '                DataSetDetail = snapshot?.DataSetDirectorySuccess == true\n                    ? "Static DataSet • live directory verified"\n                    : dataSet == null ? "Unresolved DataSet" : "Static DataSet • live discovery",',
-              1)
-
-          if 'MmsRcbAvailabilityResult? availability,\n        CancellationToken cancellationToken)' not in code:
-              code = code.replace(
-                  '        string outputPath,\n        CancellationToken cancellationToken)',
-                  '        string outputPath,\n        MmsRcbAvailabilityResult? availability,\n        CancellationToken cancellationToken)',
-                  1)
-
-          if 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' not in code:
-              code = replace_once(
-                  code,
-                  r'''        var liveModel = device\.LiveDiscoveryModel\s*\n\s*\?\? throw new InvalidOperationException\("A source SCL file or complete live discovery model is required for legacy SAS export\."\);\s*\n\s*var filteredModel = SclReportControlFilter\.FilterLiveModel\(liveModel, row\.Reference\);''',
-                  '''        var liveModel = device.LiveDiscoveryModel
-            ?? throw new InvalidOperationException("A source SCL file or complete live discovery model is required for legacy SAS export.");
-        var selectedDataSet = liveModel.DataSets.FirstOrDefault(dataSet =>
-            NormalizeRcbReference(dataSet.Reference)
-                .Equals(NormalizeRcbReference(row.DataSetReference), StringComparison.OrdinalIgnoreCase));
-        var exportModel = liveModel;
-        if (selectedDataSet is null || selectedDataSet.Members.Count == 0)
-        {
-            if (availability is null)
-            {
-                throw new InvalidOperationException(
-                    "The live discovery model does not contain FCDA member references for this DataSet. Click Check Availability, wait for the read-only audit to finish, then export again.");
-            }
-
-            exportModel = LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory(
-                liveModel,
-                row.Reference,
-                availability);
-        }
-        var filteredModel = SclReportControlFilter.FilterLiveModel(exportModel, row.Reference);''',
-                  'live export block',
-                  re.MULTILINE)
-
-          required_code = [
-              'latestAvailability',
-              'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory',
-              'live directory verified'
-          ]
-          for token in required_code:
-              if token not in code:
-                  raise SystemExit(f'missing patched code token: {token}')
-          code_path.write_text(code, encoding='utf-8')
-
-          xaml_path = Path('MainWindow.xaml')
-          xaml = xaml_path.read_text(encoding='utf-8')
-          if 'Adaptive five-slot action bar' not in xaml:
-              action_bar = '''                                                <!-- Adaptive five-slot action bar. It spans the card and reserves the relay-icon area so Play/Stop never clip. -->
+          path = Path('MainWindow.xaml')
+          text = path.read_text(encoding='utf-8')
+          if 'Adaptive five-slot action bar' not in text:
+              replacement = '''
+                                                <!-- Adaptive five-slot action bar. It spans the card and reserves the relay-icon area so Play/Stop never clip. -->
                                                 <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="62,4,1,0" Panel.ZIndex="10">
                                                     <UniformGrid Rows="1" Columns="5" HorizontalAlignment="Stretch">
                                                         <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedPlayAction_Click"
@@ -125,55 +52,38 @@ jobs:
                                                         </Button>
                                                     </UniformGrid>
                                                 </Grid>'''
-              xaml = replace_once(
-                  xaml,
-                  r'\s*<!-- Direct, unobstructed hit targets below the IP address\. -->\s*<StackPanel Grid\.Row="1" Grid\.Column="1"[\s\S]*?</StackPanel>',
-                  '\n' + action_bar,
-                  'IED card action bar')
-          xaml = xaml.replace('<Grid MinHeight="70">', '<Grid MinHeight="74">', 1)
-          if '<UniformGrid Rows="1" Columns="5"' not in xaml:
-              raise SystemExit('five-slot IED card layout was not installed')
-          xaml_path.write_text(xaml, encoding='utf-8')
+              pattern = r'\s*<!-- Direct, unobstructed hit targets below the IP address\. -->\s*<StackPanel Grid\.Row="1" Grid\.Column="1"[\s\S]*?</StackPanel>'
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'IED card action block not found: {count}')
+          text = text.replace('<Grid MinHeight="70">', '<Grid MinHeight="74">', 1)
+          if '<UniformGrid Rows="1" Columns="5"' not in text:
+              raise SystemExit('adaptive action bar validation failed')
+          path.write_text(text, encoding='utf-8')
 
           guard_path = Path('scripts/verify-rcb-export.ps1')
           guard = guard_path.read_text(encoding='utf-8')
           if 'The latest read-only availability evidence is not retained for export.' not in guard:
-              guard = guard.replace(
-                  'Require-Text $mainCode \'SclReportControlFilter.FilterLiveModel\' "Live-discovery one-RCB fallback is missing."',
-                  'Require-Text $mainCode \'SclReportControlFilter.FilterLiveModel\' "Live-discovery one-RCB fallback is missing."\nRequire-Text $mainCode \'latestAvailability\' "The latest read-only availability evidence is not retained for export."\nRequire-Text $mainCode \'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory\' "Live FCDA directory evidence is not merged before selected-RCB export."\nRequire-Text $mainXaml \'Adaptive five-slot action bar\' "IED-card actions are no longer protected from clipping."\nRequire-Text $mainXaml \'<UniformGrid Rows="1" Columns="5"\' "IED-card actions must keep five equal slots."',
-                  1)
-          if '$evidencePath' not in guard:
-              guard = guard.replace(
-                  '  $exportPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LegacySasSclExporter.cs"',
-                  '  $exportPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LegacySasSclExporter.cs"\n  $evidencePath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LiveRcbDataSetEvidenceMerger.cs"',
-                  1)
-              guard = guard.replace(
-                  'foreach ($path in @($availabilityPath, $filterPath, $exportPath))',
-                  'foreach ($path in @($availabilityPath, $filterPath, $exportPath, $evidencePath))',
-                  1)
-              guard = guard.replace(
-                  '  $export = Get-Content $exportPath -Raw',
-                  '  $export = Get-Content $exportPath -Raw\n  $evidence = Get-Content $evidencePath -Raw',
-                  1)
-              guard = guard.replace(
-                  "  Require-Text $availability 'does not expose enough reservation evidence to prove availability'",
-                  "  Require-Text $availability 'DataSetMembers' \"RCB availability snapshots no longer preserve the exact DataSet directory.\"\n  Require-Text $evidence 'The source model is never mutated' \"Live DataSet evidence merger lost its source-immutability boundary.\"\n  Require-Text $availability 'does not expose enough reservation evidence to prove availability'",
-                  1)
-          if 'apply-rcb-export-card-fix-temp.yml' not in guard:
-              guard = guard.replace(
-                  '    ".github/workflows/apply-rcb-card-patch-temp.yml"',
-                  '    ".github/workflows/apply-rcb-card-patch-temp.yml",\n    ".github/workflows/apply-rcb-export-card-fix-temp.yml"',
-                  1)
+              anchor = 'Require-Text $mainCode \'SclReportControlFilter.FilterLiveModel\' "Live-discovery one-RCB fallback is missing."'
+              addition = anchor + '\n' + '\n'.join([
+                  'Require-Text $mainCode \'latestAvailability\' "The latest read-only availability evidence is not retained for export."',
+                  'Require-Text $mainCode \'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory\' "Live FCDA directory evidence is not merged before selected-RCB export."',
+                  'Require-Text $mainXaml \'Adaptive five-slot action bar\' "IED-card actions are no longer protected from clipping."',
+                  'Require-Text $mainXaml \'<UniformGrid Rows="1" Columns="5"\' "IED-card actions must keep five equal slots."'
+              ])
+              if anchor not in guard:
+                  raise SystemExit('RCB guard anchor not found')
+              guard = guard.replace(anchor, addition, 1)
           guard_path.write_text(guard, encoding='utf-8')
 
-      - name: Commit branch patch
+      - name: Commit layout fix
         shell: bash
         run: |
-          if git diff --quiet -- MainWindow.xaml MainWindow.RcbExport.cs scripts/verify-rcb-export.ps1; then
+          if git diff --quiet -- MainWindow.xaml scripts/verify-rcb-export.ps1; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add MainWindow.xaml MainWindow.RcbExport.cs scripts/verify-rcb-export.ps1
-          git commit -m "Fix live RCB export and compact IED card actions"
-          git push origin HEAD:${{ github.head_ref }}
+          git add MainWindow.xaml scripts/verify-rcb-export.ps1
+          git commit -m "Keep all IED card actions visible"
+          git push origin HEAD:fix/rcb-export-and-ied-card-layout
