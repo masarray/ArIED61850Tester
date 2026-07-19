@@ -1,0 +1,54 @@
+name: Temporary apply RCB card patch
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Add production RCB action to IED card
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("MainWindow.xaml")
+          text = path.read_text(encoding="utf-8")
+          if 'Click="IedEditRcb_Click"' in text:
+              print("IED card RCB action already installed.")
+              raise SystemExit(0)
+
+          save = '''                                                    <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedSaveScl_Click"
+                                                                  IsEnabled="{Binding CanSaveScl}" ToolTip="{Binding SaveSclToolTip}">
+                                                              <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSave}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                          </Button>'''
+          rcb = '''                                                    <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedEditRcb_Click"
+                                                                  IsEnabled="{Binding IsActionEnabled}" ToolTip="RCB Export Filter — keep one RCB for legacy SAS CID import">
+                                                              <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSlidersHorizontal}" Style="{StaticResource LucideIcon}" Stroke="#315DBF"/></Viewbox>
+                                                          </Button>
+          '''
+          if save not in text:
+              raise SystemExit("IED card Save SCL action anchor was not found.")
+          path.write_text(text.replace(save, rcb + save, 1), encoding="utf-8")
+
+      - name: Commit branch patch
+        shell: bash
+        run: |
+          if git diff --quiet -- MainWindow.xaml; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MainWindow.xaml
+          git commit -m "Add RCB export filter action to IED cards"
+          git push origin HEAD:${{ github.head_ref }}
