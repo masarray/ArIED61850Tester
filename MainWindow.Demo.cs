@@ -14,6 +14,7 @@ public partial class MainWindow
     private readonly List<DemoPointState> _demoPointStates = new();
     private readonly List<DemoGooseStreamState> _demoGooseStates = new();
     private bool _isDemoMode;
+    private bool _rcbExportMockOpen;
     private int _demoTick;
     private long _demoEventSequence = 5000;
 
@@ -95,6 +96,33 @@ public partial class MainWindow
         Raise(nameof(DemoModeText));
         RaiseWorkspaceCounts();
         SetStatus($"Online • {Devices.Count(device => device.IsConnected)} MMS associations • {Devices.Count(device => device.IsMonitoring)} BRCB monitoring • {GlobalPoints.Count:N0} values • {GooseStreams.Count:N0} GOOSE publishers");
+
+        // The existing Ctrl+Shift+D presentation path now opens the RCB export mock
+        // after the communication workspace has rendered. No live IED or SCL engine
+        // operation is performed by this screenshot-only UX flow.
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(OpenDemoRcbExportFilter));
+    }
+
+    private void OpenDemoRcbExportFilter()
+    {
+        if (!_isDemoMode || _rcbExportMockOpen || SelectedDevice is not { IsDemo: true } device)
+            return;
+
+        _rcbExportMockOpen = true;
+        try
+        {
+            var dialog = new RcbExportFilterWindow(device.Name, device.EndpointText)
+            {
+                Owner = this,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+            dialog.ShowDialog();
+        }
+        finally
+        {
+            _rcbExportMockOpen = false;
+        }
     }
 
     private void DeactivateDemoMode()
