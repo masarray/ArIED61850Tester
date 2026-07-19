@@ -38,6 +38,10 @@ Require-Text $mainXaml 'legacy SAS CID import' "IED-card RCB action no longer ex
 Require-Text $mainCode 'SclReportControlFilter.InspectFile' "Source-backed RCB inventory is missing."
 Require-Text $mainCode 'LegacySasSclExporter.WriteFiles' "Object-model legacy SAS CID export is missing."
 Require-Text $mainCode 'SclReportControlFilter.FilterLiveModel' "Live-discovery one-RCB fallback is missing."
+Require-Text $mainCode 'latestAvailability' "The latest read-only availability evidence is not retained for export."
+Require-Text $mainCode 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' "Live FCDA directory evidence is not merged before selected-RCB export."
+Require-Text $mainXaml 'Adaptive five-slot action bar' "IED-card actions are no longer protected from clipping."
+Require-Text $mainXaml '<UniformGrid Rows="1" Columns="5"' "IED-card actions must keep five equal slots."
 Require-Text $mainCode 'RemoveUnreferencedDataSets = false' "Safe default must preserve DataSets during selected-RCB export."
 
 Require-Text $windowCode 'RcbExportWindowOptions' "Production RCB window options were removed."
