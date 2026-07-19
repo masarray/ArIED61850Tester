@@ -21,7 +21,8 @@ public sealed class SaveSclDialogViewModel : INotifyPropertyChanged
         SourceDescription = string.IsNullOrWhiteSpace(sourceDescription)
             ? "IEC 61850 model"
             : sourceDescription.Trim();
-        _legacySasCidMode = legacySasCidMode;
+        _legacySasCidMode = legacySasCidMode ||
+                            SourceDescription.Contains("Legacy SAS filter", StringComparison.OrdinalIgnoreCase);
         _selectedSchemaProfile = SclSchemaProfiles.Get(selectedProfile);
         UpdateHint();
     }
