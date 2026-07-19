@@ -1,0 +1,209 @@
+name: Temporary apply RCB export and IED card fix
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply production fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          code_path = Path('MainWindow.RcbExport.cs')
+          code = code_path.read_text(encoding='utf-8')
+
+          anchor = '''        SclReportControlInventoryResult? sourceInventory = null;
+                  Exception? sourceInspectionError = null;
+          '''.replace('                  ', '        ')
+          replacement = '''        SclReportControlInventoryResult? sourceInventory = null;
+                  Exception? sourceInspectionError = null;
+                  MmsRcbAvailabilityResult? latestAvailability = null;
+          '''.replace('                  ', '        ')
+          if 'MmsRcbAvailabilityResult? latestAvailability = null;' not in code:
+              if anchor not in code:
+                  raise SystemExit('availability state anchor not found')
+              code = code.replace(anchor, replacement, 1)
+
+          old = '''                    var availability = await _rcbAvailabilityProbe.CheckAsync(device, cancellationToken).ConfigureAwait(false);
+                              return BuildRcbExportRows(device, sourceInventory, availability);
+          '''.replace('                              ', '                    ')
+          new = '''                    latestAvailability = await _rcbAvailabilityProbe.CheckAsync(device, cancellationToken).ConfigureAwait(false);
+                              return BuildRcbExportRows(device, sourceInventory, latestAvailability);
+          '''.replace('                              ', '                    ')
+          if old in code:
+              code = code.replace(old, new, 1)
+
+          old = '''            ExportAsync = (row, schema, outputPath, cancellationToken) =>
+                      ExportLegacySasRcbAsync(device, row, schema, outputPath, cancellationToken)
+          '''.replace('                      ', '                ')
+          new = '''            ExportAsync = (row, schema, outputPath, cancellationToken) =>
+                      ExportLegacySasRcbAsync(device, row, schema, outputPath, latestAvailability, cancellationToken)
+          '''.replace('                      ', '                ')
+          if old in code:
+              code = code.replace(old, new, 1)
+
+          old = '''                DataSetDetail = dataSet == null ? "Unresolved DataSet" : "Static DataSet • live discovery",
+          '''
+          new = '''                DataSetDetail = snapshot?.DataSetDirectorySuccess == true
+                      ? "Static DataSet • live directory verified"
+                      : dataSet == null ? "Unresolved DataSet" : "Static DataSet • live discovery",
+          '''.replace('                      ', '                    ')
+          if old in code:
+              code = code.replace(old, new, 1)
+
+          old = '''        SclSchemaProfile schema,
+                  string outputPath,
+                  CancellationToken cancellationToken)
+          '''.replace('                  ', '        ')
+          new = '''        SclSchemaProfile schema,
+                  string outputPath,
+                  MmsRcbAvailabilityResult? availability,
+                  CancellationToken cancellationToken)
+          '''.replace('                  ', '        ')
+          if old in code:
+              code = code.replace(old, new, 1)
+
+          old = '''        var liveModel = device.LiveDiscoveryModel
+                      ?? throw new InvalidOperationException("A source SCL file or complete live discovery model is required for legacy SAS export.");
+                  var filteredModel = SclReportControlFilter.FilterLiveModel(liveModel, row.Reference);
+          '''.replace('                      ', '            ').replace('                  ', '        ')
+          new = '''        var liveModel = device.LiveDiscoveryModel
+                      ?? throw new InvalidOperationException("A source SCL file or complete live discovery model is required for legacy SAS export.");
+                  var selectedDataSet = liveModel.DataSets.FirstOrDefault(dataSet =>
+                      NormalizeRcbReference(dataSet.Reference)
+                          .Equals(NormalizeRcbReference(row.DataSetReference), StringComparison.OrdinalIgnoreCase));
+                  var exportModel = liveModel;
+                  if (selectedDataSet is null || selectedDataSet.Members.Count == 0)
+                  {
+                      if (availability is null)
+                      {
+                          throw new InvalidOperationException(
+                              "The live discovery model does not contain FCDA member references for this DataSet. Click Check Availability, wait for the read-only audit to finish, then export again.");
+                      }
+
+                      exportModel = LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory(
+                          liveModel,
+                          row.Reference,
+                          availability);
+                  }
+                  var filteredModel = SclReportControlFilter.FilterLiveModel(exportModel, row.Reference);
+          '''.replace('                      ', '            ').replace('                  ', '        ')
+          if old not in code and 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' not in code:
+              raise SystemExit('live export anchor not found')
+          if old in code:
+              code = code.replace(old, new, 1)
+
+          code_path.write_text(code, encoding='utf-8')
+
+          xaml_path = Path('MainWindow.xaml')
+          xaml = xaml_path.read_text(encoding='utf-8')
+          old = '''                                                <!-- Direct, unobstructed hit targets below the IP address. -->
+                                                          <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal"
+                                                                      HorizontalAlignment="Right" Margin="4,4,7,0" Panel.ZIndex="10">
+                                                              <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedPlayAction_Click"
+                                                                      IsEnabled="{Binding CanPlayAction}" ToolTip="{Binding PlayToolTip}">
+                                                                  <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucidePlay}" Style="{StaticResource LucideIcon}" Stroke="#16A34A"/></Viewbox>
+                                                              </Button>
+                                                              <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedStopAction_Click"
+                                                                      IsEnabled="{Binding CanStopAction}" ToolTip="{Binding StopToolTip}">
+                                                                  <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Warning}"/></Viewbox>
+                                                              </Button>
+                                                              <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedConfigureSignals_Click"
+                                                                      IsEnabled="{Binding CanEditSignals}" ToolTip="{Binding ConfigureToolTip}">
+                                                                  <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucidePencilLine}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                              </Button>
+                                                              <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedEditRcb_Click"
+                                                                      IsEnabled="{Binding IsActionEnabled}" ToolTip="RCB Export Filter — keep one RCB for legacy SAS CID import">
+                                                                  <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSlidersHorizontal}" Style="{StaticResource LucideIcon}" Stroke="#315DBF"/></Viewbox>
+                                                              </Button>
+                                                              <Button Style="{StaticResource IedIconButton}" Tag="{Binding}" Click="IedSaveScl_Click"
+                                                                      IsEnabled="{Binding CanSaveScl}" ToolTip="{Binding SaveSclToolTip}">
+                                                                  <Viewbox Width="16" Height="16"><Path Data="{StaticResource LucideSave}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                              </Button>
+                                                          </StackPanel>
+          '''.replace('                                                          ', '                                                ').replace('                                                              ', '                                                    ').replace('                                                                  ', '                                                        ').replace('                                                                      ', '                                                        ')
+          new = '''                                                <!-- Adaptive five-slot action bar. It spans the card and reserves the relay-icon area so Play/Stop never clip. -->
+                                                          <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="62,4,1,0" Panel.ZIndex="10">
+                                                              <UniformGrid Rows="1" Columns="5" HorizontalAlignment="Stretch">
+                                                                  <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedPlayAction_Click"
+                                                                          IsEnabled="{Binding CanPlayAction}" ToolTip="{Binding PlayToolTip}">
+                                                                      <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucidePlay}" Style="{StaticResource LucideIcon}" Stroke="#16A34A"/></Viewbox>
+                                                                  </Button>
+                                                                  <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedStopAction_Click"
+                                                                          IsEnabled="{Binding CanStopAction}" ToolTip="{Binding StopToolTip}">
+                                                                      <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideSquare}" Style="{StaticResource LucideIcon}" Stroke="{StaticResource Warning}"/></Viewbox>
+                                                                  </Button>
+                                                                  <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedConfigureSignals_Click"
+                                                                          IsEnabled="{Binding CanEditSignals}" ToolTip="{Binding ConfigureToolTip}">
+                                                                      <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucidePencilLine}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                                  </Button>
+                                                                  <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedEditRcb_Click"
+                                                                          IsEnabled="{Binding IsActionEnabled}" ToolTip="RCB Export Filter — keep one RCB for legacy SAS CID import">
+                                                                      <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideSlidersHorizontal}" Style="{StaticResource LucideIcon}" Stroke="#315DBF"/></Viewbox>
+                                                                  </Button>
+                                                                  <Button Style="{StaticResource IedIconButton}" Width="27" Height="27" Margin="0" Tag="{Binding}" Click="IedSaveScl_Click"
+                                                                          IsEnabled="{Binding CanSaveScl}" ToolTip="{Binding SaveSclToolTip}">
+                                                                      <Viewbox Width="14" Height="14"><Path Data="{StaticResource LucideSave}" Style="{StaticResource LucideIcon}"/></Viewbox>
+                                                                  </Button>
+                                                              </UniformGrid>
+                                                          </Grid>
+          '''.replace('                                                          ', '                                                ').replace('                                                              ', '                                                    ').replace('                                                                  ', '                                                        ').replace('                                                                      ', '                                                            ').replace('                                                                          ', '                                                            ')
+          if old not in xaml and 'Adaptive five-slot action bar' not in xaml:
+              raise SystemExit('IED card action bar anchor not found')
+          if old in xaml:
+              xaml = xaml.replace(old, new, 1)
+          xaml = xaml.replace('<Grid MinHeight="70">', '<Grid MinHeight="74">', 1)
+          xaml_path.write_text(xaml, encoding='utf-8')
+
+          guard_path = Path('scripts/verify-rcb-export.ps1')
+          guard = guard_path.read_text(encoding='utf-8')
+          anchor = '''Require-Text $mainCode 'SclReportControlFilter.FilterLiveModel' "Live-discovery one-RCB fallback is missing."
+          '''
+          extra = '''Require-Text $mainCode 'SclReportControlFilter.FilterLiveModel' "Live-discovery one-RCB fallback is missing."
+          Require-Text $mainCode 'latestAvailability' "The latest read-only availability evidence is not retained for export."
+          Require-Text $mainCode 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' "Live FCDA directory evidence is not merged before selected-RCB export."
+          Require-Text $mainXaml 'Adaptive five-slot action bar' "IED-card actions are no longer protected from clipping."
+          Require-Text $mainXaml '<UniformGrid Rows="1" Columns="5"' "IED-card Play/Stop/Edit/RCB/Save actions must keep five equal slots."
+          '''
+          if 'The latest read-only availability evidence is not retained for export.' not in guard:
+              if anchor not in guard:
+                  raise SystemExit('guard insertion anchor not found')
+              guard = guard.replace(anchor, extra, 1)
+          engine_anchor = '''  $exportPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LegacySasSclExporter.cs"
+          '''
+          engine_new = '''  $exportPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LegacySasSclExporter.cs"
+          $evidencePath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LiveRcbDataSetEvidenceMerger.cs"
+          '''
+          if '$evidencePath' not in guard:
+              guard = guard.replace(engine_anchor, engine_new, 1)
+              guard = guard.replace('foreach ($path in @($availabilityPath, $filterPath, $exportPath))', 'foreach ($path in @($availabilityPath, $filterPath, $exportPath, $evidencePath))', 1)
+              guard = guard.replace('  $export = Get-Content $exportPath -Raw\n', '  $export = Get-Content $exportPath -Raw\n  $evidence = Get-Content $evidencePath -Raw\n', 1)
+              guard = guard.replace("  Require-Text $availability 'does not expose enough reservation evidence to prove availability'", "  Require-Text $availability 'DataSetMembers' \"RCB availability snapshots no longer preserve the exact DataSet directory.\"\n  Require-Text $evidence 'The source model is never mutated' \"Live DataSet evidence merger lost its source-immutability boundary.\"\n  Require-Text $availability 'does not expose enough reservation evidence to prove availability'", 1)
+          if 'apply-rcb-export-card-fix-temp.yml' not in guard:
+              guard = guard.replace('    ".github/workflows/apply-rcb-card-patch-temp.yml"', '    ".github/workflows/apply-rcb-card-patch-temp.yml",\n    ".github/workflows/apply-rcb-export-card-fix-temp.yml"', 1)
+          guard_path.write_text(guard, encoding='utf-8')
+
+      - name: Commit branch patch
+        shell: bash
+        run: |
+          if git diff --quiet -- MainWindow.xaml MainWindow.RcbExport.cs scripts/verify-rcb-export.ps1; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add MainWindow.xaml MainWindow.RcbExport.cs scripts/verify-rcb-export.ps1
+          git commit -m "Fix live RCB export and compact IED card actions"
+          git push origin HEAD:${{ github.head_ref }}
