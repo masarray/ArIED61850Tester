@@ -32,17 +32,36 @@ $windowCode = Read-RequiredFile "RcbExportFilterWindow.xaml.cs"
 $models = Read-RequiredFile "Models/RcbExportModels.cs"
 $probe = Read-RequiredFile "Services/RcbAvailabilityProbeService.cs"
 $edition = Read-RequiredFile "SaveSclWindow.xaml.cs"
+$capabilityBehavior = Read-RequiredFile "FaultRecordUxBehavior.cs"
+$rcbBridge = Read-RequiredFile "MainWindow.RcbCapability.cs"
 
-Require-Text $mainXaml 'Click="IedEditRcb_Click"' "IED-card RCB Export Filter action is missing."
+Require-Text $mainXaml 'Click="IedEditRcb_Click"' "IED-card source RCB action is missing before capability-row projection."
 Require-Text $mainXaml 'legacy SAS CID import' "IED-card RCB action no longer explains the legacy SAS workflow."
 Require-Text $mainCode 'SclReportControlFilter.InspectFile' "Source-backed RCB inventory is missing."
 Require-Text $mainCode 'LegacySasSclExporter.WriteFiles' "Object-model legacy SAS CID export is missing."
 Require-Text $mainCode 'SclReportControlFilter.FilterLiveModel' "Live-discovery one-RCB fallback is missing."
 Require-Text $mainCode 'latestAvailability' "The latest read-only availability evidence is not retained for export."
 Require-Text $mainCode 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' "Live FCDA directory evidence is not merged before selected-RCB export."
-Require-Text $mainXaml 'Adaptive five-slot action bar' "IED-card actions are no longer protected from clipping."
-Require-Text $mainXaml '<UniformGrid Rows="1" Columns="5"' "IED-card actions must keep five equal slots."
+Require-Text $mainXaml 'Adaptive five-slot action bar' "IED-card source action row is no longer protected from clipping."
+Require-Text $mainXaml '<UniformGrid Rows="1" Columns="5"' "IED-card source actions must expose five slots before runtime separation."
 Require-Text $mainCode 'RemoveUnreferencedDataSets = false' "Safe default must preserve DataSets during selected-RCB export."
+
+# The runtime behavior separates the RCB engineering action from lifecycle controls.
+# It must attach the capability row to CardContent, not to the nested lifecycle Grid.
+Require-Text $capabilityBehavior 'actionPanel?.Parent is not Grid primaryActionGrid' "Capability behavior no longer identifies the nested lifecycle action Grid."
+Require-Text $capabilityBehavior 'primaryActionGrid.Parent is not Grid cardGrid' "Capability row must attach to the outer CardContent grid."
+Require-Text $capabilityBehavior 'primaryActionGrid.RowDefinitions.Clear()' "Nested action-grid overlap cleanup is missing."
+Require-Text $capabilityBehavior 'actionPanel.Columns = 4' "Play, Stop, Edit and Save must retain four lifecycle slots."
+Require-Text $capabilityBehavior 'Grid.SetColumnSpan(capabilityPanel, 2)' "Capability row must span the full IED card width."
+Require-Text $capabilityBehavior 'MinWidth = 44' "Capability captions must retain readable rounded-rectangle width."
+Require-Text $capabilityBehavior 'Height = 26' "Capability pill height changed unexpectedly."
+Require-Text $capabilityBehavior 'TryFindResource("IedIconButton")' "Capability pills must use the compact rounded-rectangle card template."
+Reject-Text $capabilityBehavior 'TryFindResource("SoftButton")' "Large SoftButton chrome must not be reused for narrow IED capability captions."
+Require-Text $capabilityBehavior '"GOOSE"' "GOOSE capability caption is missing."
+Require-Text $capabilityBehavior '"SMV"' "SMV capability caption is missing."
+Require-Text $capabilityBehavior '"FILE"' "FILE capability caption is missing."
+Require-Text $capabilityBehavior '"RCB"' "RCB capability caption is missing."
+Require-Text $rcbBridge 'OpenRcbExportFilter' "Caption RCB action no longer routes to the production export workflow."
 
 Require-Text $windowCode 'RcbExportWindowOptions' "Production RCB window options were removed."
 Require-Text $windowCode 'SclSchemaProfile.Edition1V16' "Legacy SAS export must default to Edition 1."
@@ -67,7 +86,8 @@ Require-Text $edition 'selected-RCB output is saved as an Edition 1 CID file' "E
 $temporaryWorkflows = @(
   ".github/workflows/full-source-snapshot-temp.yml",
   ".github/workflows/rcb-integration-diagnostic-temp.yml",
-  ".github/workflows/apply-rcb-card-patch-temp.yml"
+  ".github/workflows/apply-rcb-card-patch-temp.yml",
+  ".github/workflows/apply-ied-card-two-row-fix-temp.yml"
 )
 foreach ($temporary in $temporaryWorkflows) {
   if (Test-Path (Join-Path $root $temporary)) {
@@ -94,4 +114,4 @@ if (![string]::IsNullOrWhiteSpace($EngineRoot)) {
   Require-Text $export 'The original source file was not modified.' "Engine evidence no longer states source immutability."
 }
 
-Write-Host "Legacy SAS RCB export UX, read-only availability, Edition 1 CID default, and engine boundaries passed."
+Write-Host "Legacy SAS RCB export, stable two-row IED card layout, read-only availability, Edition 1 CID default, and engine boundaries passed."
