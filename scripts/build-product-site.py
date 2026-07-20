@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the ARSAS product website from explicit templates, partials and product data."""
+"""Build the ARSAS product website from templates, partials and product data."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ TEMPLATES = SOURCE / "templates"
 PARTIALS = SOURCE / "partials"
 CONFIG_PATH = SOURCE / "site.json"
 PROJECT_PATH = ROOT / "ArIED61850Tester.csproj"
-APP_ICON_SOURCE = ROOT / "Assets" / "app-icon-256.png"
+APP_ICON_SOURCE = ROOT / "Assets" / "app-icon.png"
 INCLUDE_PATTERN = re.compile(r"\{\{>\s*([a-z0-9-]+)\s*\}\}", re.IGNORECASE)
 TOKEN_PATTERN = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
 VERIFICATION_FILE_PATTERN = re.compile(r"google[a-z0-9]+\.html", re.IGNORECASE)
@@ -41,15 +41,9 @@ def read_config() -> dict[str, object]:
         raise SystemExit(f"Cannot read landing/site.json: {exc}") from exc
 
     required = (
-        "product.name",
-        "product.canonicalRoot",
-        "product.repository",
-        "product.engineRepository",
-        "author.name",
-        "author.linkedin",
-        "author.github",
-        "downloads.installer",
-        "downloads.portable",
+        "product.name", "product.canonicalRoot", "product.repository",
+        "product.engineRepository", "author.name", "author.linkedin",
+        "author.github", "downloads.installer", "downloads.portable",
         "downloads.checksums",
     )
     for dotted in required:
@@ -61,8 +55,7 @@ def read_config() -> dict[str, object]:
         if not isinstance(value, str) or not value.strip():
             raise SystemExit(f"landing/site.json has invalid {dotted}")
 
-    pages = config.get("pages")
-    if not isinstance(pages, list) or not pages:
+    if not isinstance(config.get("pages"), list) or not config["pages"]:
         raise SystemExit("landing/site.json must define a non-empty pages registry")
     return config
 
@@ -107,6 +100,9 @@ def render(text: str, values: dict[str, str]) -> str:
     text = expand_partials(text)
     for key, value in values.items():
         text = text.replace("{{" + key + "}}", value)
+    # The public favicon is generated from the latest 512px application artwork.
+    text = text.replace('href="assets/app-icon.png" type="image/png" sizes="256x256"',
+                        'href="assets/app-icon.png" type="image/png" sizes="512x512"')
     unresolved = sorted(set(TOKEN_PATTERN.findall(text)))
     if unresolved:
         raise SystemExit("Unresolved landing template tokens: " + ", ".join(unresolved))
@@ -119,7 +115,6 @@ def page_registry(config: dict[str, object]) -> list[dict[str, object]]:
     pages = config.get("pages")
     if not isinstance(pages, list):
         raise SystemExit("landing/site.json pages registry is invalid")
-
     normalized: list[dict[str, object]] = []
     paths: set[str] = set()
     templates: set[str] = set()
@@ -134,9 +129,7 @@ def page_registry(config: dict[str, object]) -> list[dict[str, object]]:
             raise SystemExit(f"Duplicate landing page registry entry: {path or template}")
         if path not in ("", "404.html") and not path.endswith(".html"):
             raise SystemExit(f"Invalid landing page path: {path}")
-        if not template.endswith(".html"):
-            raise SystemExit(f"Invalid landing template name: {template}")
-        if not (TEMPLATES / template).exists():
+        if not template.endswith(".html") or not (TEMPLATES / template).exists():
             raise SystemExit(f"Registered landing template is missing: {template}")
         paths.add(path)
         templates.add(template)
@@ -155,14 +148,11 @@ def install_icon(output: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["icons"] = [{
         "src": "assets/app-icon.png",
-        "sizes": "256x256",
+        "sizes": "512x512",
         "type": "image/png",
-        "purpose": "any",
+        "purpose": "any maskable",
     }]
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def write_sitemap(output: Path, config: dict[str, object], pages: list[dict[str, object]]) -> None:
@@ -195,18 +185,11 @@ def write_build_info(output: Path, config: dict[str, object], version: str, page
         "author": config["author"],
         "pages": [entry["path"] or "index.html" for entry in pages],
     }
-    (output / "build-info.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    (output / "build-info.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def legacy_html_names() -> list[str]:
-    return sorted(
-        path.name
-        for path in SOURCE.glob("*.html")
-        if not VERIFICATION_FILE_PATTERN.fullmatch(path.name)
-    )
+    return sorted(path.name for path in SOURCE.glob("*.html") if not VERIFICATION_FILE_PATTERN.fullmatch(path.name))
 
 
 def build(output: Path) -> None:
@@ -227,8 +210,7 @@ def build(output: Path) -> None:
         target_name = "index.html" if str(entry["path"]) == "" else str(entry["path"])
         target = output / target_name
         target.parent.mkdir(parents=True, exist_ok=True)
-        source_text = (TEMPLATES / template_name).read_text(encoding="utf-8")
-        target.write_text(render(source_text, values), encoding="utf-8")
+        target.write_text(render((TEMPLATES / template_name).read_text(encoding="utf-8"), values), encoding="utf-8")
         generated.add(target_name)
 
     source_html = legacy_html_names()
@@ -240,12 +222,8 @@ def build(output: Path) -> None:
     write_build_info(output, config, version, pages)
 
     required = {
-        *generated,
-        "site.json",
-        "sitemap.xml",
-        "build-info.json",
-        "assets/app-icon.png",
-        "assets/social-card.png",
+        *generated, "site.json", "sitemap.xml", "build-info.json",
+        "assets/app-icon.png", "assets/social-card.png",
         "assets/screenshots/arsas-first-launch.webp",
         "assets/screenshots/arsas-multi-ied.webp",
         "assets/screenshots/arsas-live-values.webp",
@@ -259,15 +237,12 @@ def build(output: Path) -> None:
         raise SystemExit("Missing product-site output: " + ", ".join(missing))
 
     combined = "\n".join((output / page).read_text(encoding="utf-8") for page in sorted(generated))
-    forbidden = (
+    for value in (
         "raw.githubusercontent.com/masarray/arsas/main/Assets/screenshot",
         "https://masarray.github.io/arsas/assets/social-card.svg",
-        'href="assets/favicon.svg"',
-        "{{",
-        "github.com/masarray/arsas#quick-start",
+        'href="assets/favicon.svg"', "{{", "github.com/masarray/arsas#quick-start",
         '<meta name="keywords"',
-    )
-    for value in forbidden:
+    ):
         if value in combined:
             raise SystemExit(f"Deployable product site still contains forbidden value: {value}")
 
