@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate ARSAS product templates, authority, localization and source assets."""
+"""Validate ARSAS product templates, release trust, authority, localization and source assets."""
 
 from __future__ import annotations
 
@@ -18,10 +18,20 @@ APP_ICON_SOURCE = ROOT / "Assets" / "app-icon.png"
 INDEXNOW_SCRIPT = ROOT / "scripts" / "submit-indexnow.py"
 INCLUDE_PATTERN = re.compile(r"\{\{>\s*([a-z0-9-]+)\s*\}\}", re.IGNORECASE)
 VERIFICATION_PATTERN = re.compile(r"google[a-z0-9]+\.html", re.IGNORECASE)
+SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
 KNOWN_TOKENS = {
     "ARSAS_VERSION", "PRODUCT_NAME", "CANONICAL_ROOT", "REPOSITORY_URL",
     "ENGINE_REPOSITORY_URL", "AUTHOR_NAME", "AUTHOR_LINKEDIN", "AUTHOR_GITHUB",
-    "INSTALLER_URL", "PORTABLE_URL", "CHECKSUMS_URL",
+    "INSTALLER_URL", "PORTABLE_URL", "CHECKSUMS_URL", "STABLE_VERSION",
+    "STABLE_PUBLISHED_ISO", "STABLE_PUBLISHED_DATE", "STABLE_PUBLISHED_DATE_ID",
+    "INSTALLER_SIZE", "PORTABLE_SIZE", "INSTALLER_SHA256", "PORTABLE_SHA256",
+    "RELEASE_TITLE", "RELEASE_TITLE_ID", "RELEASE_SUMMARY", "RELEASE_SUMMARY_ID",
+    "RELEASE_HIGHLIGHTS", "RELEASE_HIGHLIGHTS_ID", "RELEASE_IMPROVEMENTS",
+    "RELEASE_IMPROVEMENTS_ID", "RELEASE_LIMITATIONS", "RELEASE_LIMITATIONS_ID",
+    "SIGNING_STATUS", "SIGNING_LABEL", "SIGNING_LABEL_ID", "SIGNING_DETAIL",
+    "SIGNING_DETAIL_ID", "RELEASE_SCREENSHOT_SRC", "RELEASE_SCREENSHOT_WIDTH",
+    "RELEASE_SCREENSHOT_HEIGHT", "RELEASE_SCREENSHOT_ALT", "RELEASE_SCREENSHOT_ALT_ID",
+    "RELEASE_SCREENSHOT_CAPTION", "RELEASE_SCREENSHOT_CAPTION_ID", "ISSUES_URL", "RELEASE_URL",
 }
 EXPECTED_NAV = ("overview", "capabilities", "solutions", "guides", "architecture", "about", "download")
 GUIDE_FILES = {
@@ -33,6 +43,7 @@ GUIDE_FILES = {
 LOCALIZED_PAIRS = {
     "": "id.html",
     "download.html": "unduh.html",
+    "release-notes.html": "catatan-rilis.html",
     "guides.html": "panduan.html",
     "mms-client.html": "mms-client-iec61850.html",
     "smart-reporting.html": "smart-reporting-iec61850.html",
@@ -128,11 +139,11 @@ def validate_template(path: Path, content_type: str | None, language: str | None
     parser.feed(text)
     label = path.relative_to(ROOT)
 
-    if not parser.title.strip() or len(parser.title.strip()) > 75:
+    if not parser.title.strip() or len(parser.title.strip()) > 90:
         errors.append(f"{label}: invalid title")
     if parser.h1 != 1:
         errors.append(f"{label}: expected one h1, found {parser.h1}")
-    if not parser.description or not 70 <= len(parser.description) <= 220:
+    if not parser.description or not 70 <= len(parser.description) <= 240:
         errors.append(f"{label}: invalid meta description")
     if not parser.body_page:
         errors.append(f"{label}: missing body data-page")
@@ -187,6 +198,10 @@ def validate_template(path: Path, content_type: str | None, language: str | None
             errors.append(f"{label}: localized page must declare Indonesian structured-data language")
         if 'hreflang="en"' not in raw:
             errors.append(f"{label}: localized page must link to an English source page")
+    if content_type == "release":
+        for value in ("What’s new", "Known limitations", "{{RELEASE_SCREENSHOT_SRC}}", "{{ISSUES_URL}}", "{{SIGNING_STATUS}}"):
+            if value not in raw:
+                errors.append(f"{label}: release page missing {value}")
     if content_type == "authority" and "Claim governance" not in raw:
         errors.append(f"{label}: authority page must document claim governance")
 
@@ -238,7 +253,7 @@ def validate_registry(config: dict[str, object], errors: list[str]) -> list[tupl
     names: set[str] = set()
     entries: dict[str, dict[str, object]] = {}
     templates: list[tuple[Path, str | None, str | None]] = []
-    guide_count = localized_count = authority_count = 0
+    guide_count = localized_count = authority_count = release_count = 0
     for entry in pages:
         if not isinstance(entry, dict):
             errors.append("landing/site.json: every page entry must be an object")
@@ -275,15 +290,19 @@ def validate_registry(config: dict[str, object], errors: list[str]) -> list[tupl
             localized_count += 1
         elif content_type == "authority":
             authority_count += 1
+        elif content_type == "release":
+            release_count += 1
 
-    if len(pages) != 44:
-        errors.append(f"landing/site.json: expected 44 pages, found {len(pages)}")
+    if len(pages) != 46:
+        errors.append(f"landing/site.json: expected 46 pages, found {len(pages)}")
     if guide_count != 11:
         errors.append(f"landing/site.json: expected 11 troubleshooting guides, found {guide_count}")
-    if localized_count != 12:
-        errors.append(f"landing/site.json: expected 12 Indonesian pages, found {localized_count}")
+    if localized_count != 13:
+        errors.append(f"landing/site.json: expected 13 Indonesian pages, found {localized_count}")
     if authority_count != 1:
         errors.append(f"landing/site.json: expected one authority page, found {authority_count}")
+    if release_count != 1:
+        errors.append(f"landing/site.json: expected one English release page, found {release_count}")
 
     for english, indonesian in LOCALIZED_PAIRS.items():
         expected = {"en": english, "id": indonesian, "x-default": english}
@@ -304,6 +323,51 @@ def validate_registry(config: dict[str, object], errors: list[str]) -> list[tupl
     return templates
 
 
+def validate_release_sources(errors: list[str]) -> None:
+    try:
+        evidence = json.loads((LANDING / "latest.json").read_text(encoding="utf-8"))
+        notes = json.loads((LANDING / "release-notes.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"release trust JSON: {exc}")
+        return
+    version = str(evidence.get("version", ""))
+    if evidence.get("schemaVersion") != 1 or evidence.get("product") != "ARSAS" or evidence.get("channel") != "stable":
+        errors.append("landing/latest.json: invalid stable release identity")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version) or notes.get("version") != version:
+        errors.append("release evidence and release notes versions must match")
+    for key, expected_name in (("installer", "ARSAS-Windows-x64-Setup.exe"), ("portable", "ARSAS-Windows-x64-Portable.zip")):
+        package = evidence.get(key)
+        if not isinstance(package, dict) or package.get("name") != expected_name:
+            errors.append(f"landing/latest.json: invalid {key} identity")
+            continue
+        if not SHA256_PATTERN.fullmatch(str(package.get("sha256", ""))):
+            errors.append(f"landing/latest.json: invalid {key} SHA-256")
+        if not 1_000_000 <= int(package.get("sizeBytes", 0)) <= 500_000_000:
+            errors.append(f"landing/latest.json: invalid {key} size")
+    if not isinstance(evidence.get("checksums"), dict):
+        errors.append("landing/latest.json: checksum asset is missing")
+    signing = evidence.get("codeSigning")
+    note_signing = notes.get("codeSigning")
+    if not isinstance(signing, dict) or signing.get("status") not in {"signed", "unsigned"}:
+        errors.append("landing/latest.json: code-signing status is missing")
+    if not isinstance(note_signing, dict) or note_signing.get("status") != (signing or {}).get("status"):
+        errors.append("release notes signing status does not match evidence")
+    elif note_signing.get("status") == "unsigned" and "Authenticode" not in str(note_signing.get("detail", "")):
+        errors.append("unsigned release notes must explain Authenticode status")
+    for key in ("title", "titleId", "summary", "summaryId", "issuesUrl", "releaseUrl"):
+        if not isinstance(notes.get(key), str) or not str(notes.get(key)).strip():
+            errors.append(f"landing/release-notes.json: missing {key}")
+    for key in ("highlights", "highlightsId", "improvements", "improvementsId", "knownLimitations", "knownLimitationsId"):
+        value = notes.get(key)
+        if not isinstance(value, list) or len(value) < 4:
+            errors.append(f"landing/release-notes.json: {key} must contain at least four entries")
+    screenshot = notes.get("screenshot")
+    if not isinstance(screenshot, dict) or not (LANDING / str(screenshot.get("src", ""))).exists():
+        errors.append("landing/release-notes.json: current stable screenshot is missing")
+    if notes.get("issuesUrl") != "https://github.com/masarray/arsas/issues/new/choose":
+        errors.append("landing/release-notes.json: issue reporting URL is invalid")
+
+
 def validate_partials(errors: list[str]) -> None:
     def read(name: str) -> str:
         path = PARTIALS / name
@@ -321,13 +385,13 @@ def validate_partials(errors: list[str]) -> None:
     for value in ('href="id.html"', 'hreflang="id"'):
         if value not in header + footer:
             errors.append(f"shared product chrome missing language route {value}")
-    for value in ("{{AUTHOR_NAME}}", "{{AUTHOR_LINKEDIN}}", "{{REPOSITORY_URL}}", 'href="solutions.html"', 'href="guides.html"', 'href="technical-review.html"'):
+    for value in ("{{AUTHOR_NAME}}", "{{AUTHOR_LINKEDIN}}", "{{REPOSITORY_URL}}", 'href="solutions.html"', 'href="guides.html"', 'href="technical-review.html"', 'href="release-notes.html"'):
         if value not in footer:
             errors.append(f"shared footer missing {value}")
-    for value in ("{{ARSAS_VERSION}}", "{{INSTALLER_URL}}", 'href="download.html"'):
+    for value in ("{{STABLE_VERSION}}", "{{INSTALLER_URL}}", 'href="download.html"', 'href="release-notes.html"'):
         if value not in cta:
             errors.append(f"shared download CTA missing {value}")
-    for value in ("{{ARSAS_VERSION}}", "{{INSTALLER_URL}}", 'href="unduh.html"', "Unduh installer"):
+    for value in ("{{STABLE_VERSION}}", "{{INSTALLER_URL}}", 'href="unduh.html"', 'href="catatan-rilis.html"', "Unduh Windows installer"):
         if value not in cta_id:
             errors.append(f"shared Indonesian download CTA missing {value}")
     for value in ("Ari Sulistiono", 'href="guides.html"', 'href="technical-review.html"', "Engineering boundary"):
@@ -344,10 +408,11 @@ def validate_contract(errors: list[str]) -> None:
     solutions, guides = template("solutions.html"), template("guides.html")
     review, localized_home = template("technical-review.html"), template("id.html")
     localized_guides, localized_download = template("panduan.html"), template("unduh.html")
+    release, release_id = template("release-notes.html"), template("catatan-rilis.html")
     for value in ("{{INSTALLER_URL}}", 'href="download.html"', 'href="solutions.html"', "arsas-rcb-scl-export.webp", "{{AUTHOR_LINKEDIN}}", '"codeRepository"'):
         if value not in home:
             errors.append(f"homepage template missing {value}")
-    for value in ("{{INSTALLER_URL}}", "{{PORTABLE_URL}}", "{{CHECKSUMS_URL}}", "{{ARSAS_VERSION}}", "Download Center"):
+    for value in ("{{INSTALLER_URL}}", "{{PORTABLE_URL}}", "{{CHECKSUMS_URL}}", "{{STABLE_VERSION}}", "Installer vs Portable", "data-copy-value", "{{SIGNING_STATUS}}", 'href="release-notes.html"', "{{ISSUES_URL}}"):
         if value not in download:
             errors.append(f"download template missing {value}")
     for value in ("{{AUTHOR_LINKEDIN}}", "{{AUTHOR_GITHUB}}", "{{REPOSITORY_URL}}", "Download Center"):
@@ -365,15 +430,21 @@ def validate_contract(errors: list[str]) -> None:
     for value in ("Pengujian IEC 61850", 'href="panduan.html"', 'href="unduh.html"', 'hreflang="en"'):
         if value not in localized_home:
             errors.append(f"Indonesian homepage missing {value}")
-    for localized in LOCALIZED_FILES - {"id.html", "panduan.html", "unduh.html"}:
+    for localized in LOCALIZED_FILES - {"id.html", "panduan.html", "unduh.html", "catatan-rilis.html"}:
         if f'href="{localized}"' not in localized_home and f'href="{localized}"' not in localized_guides:
             errors.append(f"Indonesian hubs do not link to {localized}")
     for value in ("Panduan Troubleshooting", 'href="reporting-silent.html"', 'href="technical-review.html"', 'href="mms-client-iec61850.html"'):
         if value not in localized_guides:
             errors.append(f"Indonesian guide hub missing {value}")
-    for value in ("{{INSTALLER_URL}}", "{{PORTABLE_URL}}", "{{CHECKSUMS_URL}}", "Unduh ARSAS", "{{> download-cta-id}}"):
+    for value in ("{{INSTALLER_URL}}", "{{PORTABLE_URL}}", "{{CHECKSUMS_URL}}", "{{STABLE_VERSION}}", "Installer vs Portable", "data-copy-value", "{{SIGNING_STATUS}}", 'href="catatan-rilis.html"', "{{ISSUES_URL}}", "{{> download-cta-id}}"):
         if value not in localized_download:
             errors.append(f"Indonesian download page missing {value}")
+    for value in ("What’s new", "Known limitations", "{{RELEASE_HIGHLIGHTS}}", "{{RELEASE_SCREENSHOT_SRC}}", "{{SIGNING_DETAIL}}", "{{ISSUES_URL}}", "{{> download-cta}}"):
+        if value not in release:
+            errors.append(f"English release notes missing {value}")
+    for value in ("Yang baru", "Known limitations", "{{RELEASE_HIGHLIGHTS_ID}}", "{{RELEASE_SCREENSHOT_SRC}}", "{{SIGNING_DETAIL_ID}}", "{{ISSUES_URL}}", 'hreflang="en"', "{{> download-cta-id}}"):
+        if value not in release_id:
+            errors.append(f"Indonesian release notes missing {value}")
 
     localized_contracts = {
         "mms-client-iec61850.html": ("MMS Client", "DataSet", "mms-client.html"),
@@ -400,9 +471,9 @@ def validate_contract(errors: list[str]) -> None:
     if (LANDING / "sitemap.xml").exists():
         errors.append("landing/sitemap.xml must be generated from site.json, not stored as a second source")
     for relative in (
-        "assets/screenshots/arsas-first-launch.webp", "assets/screenshots/arsas-rcb-scl-export.webp",
-        "assets/social-card.png", "site.webmanifest", "robots.txt",
-        "arsas-iec61850-20260720-6f4a9d2c8b.txt",
+        "assets/screenshots/arsas-first-launch.webp", "assets/screenshots/arsas-live-values.webp",
+        "assets/screenshots/arsas-rcb-scl-export.webp", "assets/social-card.png", "site.webmanifest",
+        "robots.txt", "latest.json", "release-notes.json", "arsas-iec61850-20260720-6f4a9d2c8b.txt",
     ):
         if not (LANDING / relative).exists():
             errors.append(f"missing landing source file: {relative}")
@@ -423,6 +494,7 @@ def main() -> int:
     errors: list[str] = []
     config = read_config(errors)
     templates = validate_registry(config, errors) if config else []
+    validate_release_sources(errors)
     validate_partials(errors)
     for template_path, content_type, language in templates:
         validate_template(template_path, content_type, language, errors)
@@ -434,7 +506,10 @@ def main() -> int:
             print(f"- {error}", file=sys.stderr)
         return 1
     width, height = png_size(APP_ICON_SOURCE)
-    print(f"ARSAS product-source validation passed: {len(templates)} templates, 11 guides, 12 Indonesian pages and latest {width}x{height} app icon.")
+    print(
+        f"ARSAS product-source validation passed: {len(templates)} templates, 11 guides, "
+        f"13 Indonesian pages, 13 hreflang pairs, stable release trust and latest {width}x{height} app icon."
+    )
     return 0
 
 
