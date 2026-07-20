@@ -316,6 +316,15 @@ public partial class MainWindow
                 row.Reference,
                 availability);
         }
+
+        if (availability != null)
+        {
+            exportModel = LiveRcbDataSetEvidenceMerger.MergeSelectedReportControlEvidence(
+                exportModel,
+                row.Reference,
+                availability);
+        }
+
         var filteredModel = SclReportControlFilter.FilterLiveModel(exportModel, row.Reference);
         var liveResult = await Task.Run(() => AuthoritativeLiveIedSclExporter.WriteFiles(
             filteredModel,
