@@ -1,0 +1,20 @@
+{
+  "product": {
+    "name": "ARSAS",
+    "tagline": "Practical IEC 61850 testing, commissioning and troubleshooting",
+    "canonicalRoot": "https://masarray.github.io/arsas/",
+    "license": "GPL-3.0-or-later",
+    "repository": "https://github.com/masarray/arsas",
+    "engineRepository": "https://github.com/masarray/ARIEC61850"
+  },
+  "author": {
+    "name": "Ari Sulistiono",
+    "linkedin": "https://www.linkedin.com/in/ari-sulistiono",
+    "github": "https://github.com/masarray"
+  },
+  "downloads": {
+    "installer": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe",
+    "portable": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Portable.zip",
+    "checksums": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-SHA256SUMS.txt"
+  }
+}
