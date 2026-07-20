@@ -11,8 +11,6 @@ on:
     branches: [ main ]
     paths:
       - ".release/publish-verified.json"
-      - "landing/release-notes.json"
-      - ".github/workflows/publish-verified-release.yml"
   workflow_dispatch:
 
 permissions:
@@ -216,6 +214,9 @@ jobs:
           portable_sha="$(sha256sum verified/ARSAS-Windows-x64-Portable.zip | awk '{print $1}')"
           installer_size="$(stat -c %s verified/ARSAS-Windows-x64-Setup.exe)"
           portable_size="$(stat -c %s verified/ARSAS-Windows-x64-Portable.zip)"
+          if ! gh api "repos/$GITHUB_REPOSITORY/contents/published.json?ref=release-evidence" --jq .content | base64 -d > verified/existing-published.json; then
+            printf '{}\n' > verified/existing-published.json
+          fi
 
           python - <<PY > verified/published.json
           import json
@@ -223,14 +224,21 @@ jobs:
           from pathlib import Path
 
           notes = json.loads(Path('landing/release-notes.json').read_text())
+          try:
+              existing = json.loads(Path('verified/existing-published.json').read_text())
+          except (json.JSONDecodeError, OSError):
+              existing = {}
+          same_version = existing.get('version') == '$VERSION'
+          published_at = existing.get('publishedAtUtc') if same_version else datetime.now(timezone.utc).isoformat()
+          source_commit = existing.get('sourceCommit') if same_version else '$GITHUB_SHA'
           print(json.dumps({
               'schemaVersion': 1,
               'product': 'ARSAS',
               'version': '$VERSION',
               'tag': '$TAG',
               'channel': 'stable',
-              'publishedAtUtc': datetime.now(timezone.utc).isoformat(),
-              'sourceCommit': '$GITHUB_SHA',
+              'publishedAtUtc': published_at,
+              'sourceCommit': source_commit,
               'releaseUrl': 'https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG',
               'installer': {
                   'name': 'ARSAS-Windows-x64-Setup.exe',
