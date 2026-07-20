@@ -52,7 +52,7 @@ class Parser(HTMLParser):
             self.h1 += 1
         elif tag == "meta" and values.get("name", "").lower() == "description":
             self.description = values.get("content")
-        for key in ("href", "src", "content"):
+        for key in ("href", "src"):
             value = values.get(key)
             if value:
                 self.refs.append(value)
