@@ -4,9 +4,11 @@
   const dntEnabled = navigator.doNotTrack === '1' || window.doNotTrack === '1';
   const banner = document.querySelector('[data-consent-banner]');
   const status = document.querySelector('[data-consent-status]');
+  const analyticsConfig = document.getElementById('arsas-analytics');
   const acceptButtons = document.querySelectorAll('[data-consent-accept]');
   const rejectButtons = document.querySelectorAll('[data-consent-reject]');
   const manageButtons = document.querySelectorAll('[data-consent-manage]');
+  let analyticsLoaded = false;
 
   window.dataLayer = window.dataLayer || [];
   window.gtag = window.gtag || function gtag() {
@@ -33,15 +35,10 @@
   const setStatus = preference => {
     if (!status) return;
     const isId = document.documentElement.lang === 'id';
-    if (dntEnabled) {
-      status.textContent = isId ? 'Do Not Track aktif; analitik tetap nonaktif.' : 'Do Not Track is active; analytics stays disabled.';
-    } else if (preference === 'granted') {
-      status.textContent = isId ? 'Analitik opsional diizinkan.' : 'Optional analytics is allowed.';
-    } else if (preference === 'denied') {
-      status.textContent = isId ? 'Analitik opsional ditolak.' : 'Optional analytics is declined.';
-    } else {
-      status.textContent = isId ? 'Belum ada pilihan analitik.' : 'No analytics preference has been saved.';
-    }
+    if (dntEnabled) status.textContent = isId ? 'Do Not Track aktif; analitik tetap nonaktif.' : 'Do Not Track is active; analytics stays disabled.';
+    else if (preference === 'granted') status.textContent = isId ? 'Analitik opsional diizinkan.' : 'Optional analytics is allowed.';
+    else if (preference === 'denied') status.textContent = isId ? 'Analitik opsional ditolak.' : 'Optional analytics is declined.';
+    else status.textContent = isId ? 'Belum ada pilihan analitik.' : 'No analytics preference has been saved.';
   };
 
   const dispatch = (preference, source) => {
@@ -52,7 +49,25 @@
     }));
   };
 
-  const showBanner = focus = false => {
+  const loadAnalytics = () => {
+    if (analyticsLoaded || dntEnabled || !(analyticsConfig instanceof HTMLScriptElement)) return;
+    const measurementId = analyticsConfig.dataset.measurementId || '';
+    if (!/^G-[A-Z0-9]+$/.test(measurementId)) return;
+    analyticsLoaded = true;
+    window.gtag('consent', 'update', {
+      analytics_storage: 'granted',
+      ad_storage: 'denied',
+      ad_user_data: 'denied',
+      ad_personalization: 'denied'
+    });
+    const client = document.createElement('script');
+    client.src = 'analytics.js';
+    client.async = true;
+    client.dataset.consentLoaded = 'true';
+    document.head.appendChild(client);
+  };
+
+  const showBanner = focus => {
     if (!(banner instanceof HTMLElement)) return;
     banner.hidden = false;
     document.body.classList.add('consent-open');
@@ -69,20 +84,17 @@
   };
 
   const save = preference => {
+    const previous = readPreference();
     const effective = dntEnabled ? 'denied' : preference;
     try {
       window.localStorage.setItem(STORAGE_KEY, effective);
     } catch {
       // The effective preference still applies for this page when storage is unavailable.
     }
-    window.gtag('consent', 'update', {
-      analytics_storage: effective === 'granted' ? 'granted' : 'denied',
-      ad_storage: 'denied',
-      ad_user_data: 'denied',
-      ad_personalization: 'denied'
-    });
     hideBanner();
     dispatch(effective, 'user-choice');
+    if (effective === 'granted') loadAnalytics();
+    else if (analyticsLoaded || previous === 'granted') window.location.reload();
   };
 
   acceptButtons.forEach(button => button.addEventListener('click', () => save('granted')));
@@ -99,6 +111,7 @@
   setStatus(initial);
   if (initial === 'unset' && !dntEnabled) showBanner(false);
   dispatch(initial === 'granted' ? 'granted' : 'denied', 'initial');
+  if (initial === 'granted') loadAnalytics();
 
   window.ARSASConsent = Object.freeze({
     storageKey: STORAGE_KEY,
