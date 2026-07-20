@@ -110,7 +110,7 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         try
         {
             EnsureReady();
-            return await _service!.DownloadAsync(
+            var result = await _service!.DownloadAsync(
                 record,
                 destinationRoot,
                 new Iec61850FaultRecordDownloadOptions
@@ -125,6 +125,21 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
                 },
                 progress,
                 cancellationToken).ConfigureAwait(false);
+
+            if (result.IsSuccess)
+                return result;
+
+            return new Iec61850FaultRecordDownloadResult
+            {
+                IsSuccess = false,
+                RecordId = result.RecordId,
+                DestinationDirectory = result.DestinationDirectory,
+                Files = result.Files,
+                BytesTransferred = result.BytesTransferred,
+                Message =
+                    $"{result.Message} Dedicated session: {ConnectionState}. " +
+                    $"Receive routing: {ValueOrDash(_session.LastReceiveRoutingSummary)}"
+            };
         }
         finally
         {
@@ -160,4 +175,7 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
                 $"The dedicated fault-record association is not ready. {ConnectionState}.");
         }
     }
+
+    private static string ValueOrDash(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
 }
