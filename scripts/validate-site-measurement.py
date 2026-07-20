@@ -51,8 +51,8 @@ def main() -> int:
         client_text = client.read_text(encoding="utf-8")
     for required in (
         "download_installer", "download_portable", "download_checksums",
-        "page_not_found", "language_switch", "web_vital_lcp", "web_vital_cls",
-        "web_vital_inp", "navigator.doNotTrack", "allow_google_signals: false",
+        "page_not_found", "language_switch", "reportVital('LCP'", "reportVital('CLS'",
+        "reportVital('INP'", "navigator.doNotTrack", "allow_google_signals: false",
         "allow_ad_personalization_signals: false",
     ):
         if required not in client_text:
@@ -72,7 +72,7 @@ def main() -> int:
             errors.append(f"{label}: expected one shared analytics client")
             continue
         script = parsed.analytics[0]
-        if script.get("src") != "analytics.js" or script.get("defer") is None:
+        if script.get("src") != "analytics.js" or "defer" not in script:
             errors.append(f"{label}: analytics client must be local and deferred")
         actual_id = script.get("data-measurement-id") or ""
         if actual_id != expected_id:
