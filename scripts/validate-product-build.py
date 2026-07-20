@@ -13,12 +13,9 @@ from urllib.parse import urlparse
 
 EXPECTED_MEDIA = (
     "assets/app-icon.png", "assets/social-card.png",
-    "assets/screenshots/arsas-first-launch.webp",
-    "assets/screenshots/arsas-multi-ied.webp",
-    "assets/screenshots/arsas-live-values.webp",
-    "assets/screenshots/arsas-event-log.webp",
-    "assets/screenshots/arsas-goose.webp",
-    "assets/screenshots/arsas-diagnostics.webp",
+    "assets/screenshots/arsas-first-launch.webp", "assets/screenshots/arsas-multi-ied.webp",
+    "assets/screenshots/arsas-live-values.webp", "assets/screenshots/arsas-event-log.webp",
+    "assets/screenshots/arsas-goose.webp", "assets/screenshots/arsas-diagnostics.webp",
     "assets/screenshots/arsas-rcb-scl-export.webp",
 )
 INSTALLER = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe"
@@ -30,23 +27,14 @@ AUTHOR_GITHUB = "https://github.com/masarray"
 APP_ICON = "assets/app-icon.png"
 EXPECTED_NAV = {"overview", "capabilities", "solutions", "guides", "architecture", "about", "download"}
 GUIDE_PAGES = {
-    "reporting-silent.html",
-    "brcb-vs-urcb.html",
-    "rcb-reserved.html",
-    "empty-dataset.html",
-    "port-102-connection-failed.html",
-    "comtrade-download.html",
-    "goose-sequence.html",
-    "cid-rejected.html",
-    "live-model-vs-scl.html",
-    "direct-vs-sbo.html",
-    "commandtermination-addcause.html",
+    "reporting-silent.html", "brcb-vs-urcb.html", "rcb-reserved.html",
+    "empty-dataset.html", "port-102-connection-failed.html", "comtrade-download.html",
+    "goose-sequence.html", "cid-rejected.html", "live-model-vs-scl.html",
+    "direct-vs-sbo.html", "commandtermination-addcause.html",
 }
-FORBIDDEN_PUBLIC_COPY = (
-    "without navigating source code",
-    "without navigating the source repository",
-    "without requiring repository navigation",
-    "the website is the product front door",
+FORBIDDEN_COPY = (
+    "without navigating source code", "without navigating the source repository",
+    "without requiring repository navigation", "the website is the product front door",
 )
 
 
@@ -175,7 +163,7 @@ def validate_sitemap(site: Path, pages: list[str], errors: list[str]) -> None:
             errors.append(f"sitemap.xml missing {page}")
 
 
-def validate_manifest(site: Path, errors: list[str]) -> None:
+def validate_manifest(site: Path, icon_size: str, errors: list[str]) -> None:
     path = site / "site.webmanifest"
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
@@ -183,15 +171,12 @@ def validate_manifest(site: Path, errors: list[str]) -> None:
         errors.append(f"site.webmanifest: {exc}")
         return
     icons = manifest.get("icons")
-    if not isinstance(icons, list) or len(icons) != 1:
+    if not isinstance(icons, list) or len(icons) != 1 or not isinstance(icons[0], dict):
         errors.append("site.webmanifest must define one canonical icon")
         return
     icon = icons[0]
-    if not isinstance(icon, dict):
-        errors.append("site.webmanifest icon is invalid")
-        return
-    if icon.get("src") != APP_ICON or icon.get("sizes") != "512x512" or icon.get("type") != "image/png":
-        errors.append("site.webmanifest must use the 512x512 ARSAS app icon")
+    if icon.get("src") != APP_ICON or icon.get("sizes") != icon_size or icon.get("type") != "image/png":
+        errors.append(f"site.webmanifest must use the actual {icon_size} ARSAS app icon")
     if "maskable" not in str(icon.get("purpose", "")):
         errors.append("site.webmanifest icon must support maskable purpose")
 
@@ -199,11 +184,21 @@ def validate_manifest(site: Path, errors: list[str]) -> None:
 def main() -> int:
     site = Path(sys.argv[1] if len(sys.argv) > 1 else "_site").resolve()
     errors: list[str] = []
-
     version, pages = validate_build_info(site, errors)
     for relative in tuple(pages) + EXPECTED_MEDIA + ("site.json", "build-info.json", "sitemap.xml", "site.webmanifest"):
         if not (site / relative).exists():
             errors.append(f"missing deployable file: {relative}")
+
+    icon_path = site / APP_ICON
+    icon_size = ""
+    if icon_path.exists():
+        try:
+            width, height = png_size(icon_path)
+            icon_size = f"{width}x{height}"
+            if width != height or width < 256:
+                errors.append(f"app-icon.png must be square and at least 256px, found {icon_size}")
+        except ValueError as exc:
+            errors.append(f"app-icon.png: {exc}")
 
     combined = ""
     for name in pages:
@@ -232,11 +227,10 @@ def main() -> int:
                     continue
                 if not target.exists():
                     errors.append(f"{name}: missing local asset {reference}")
-
-        favicon = [icon for icon in parser.icons if (icon.get("rel") or "").lower() == "icon"]
-        if len(favicon) != 1 or favicon[0].get("href") != APP_ICON or favicon[0].get("sizes") != "512x512":
-            errors.append(f"{name}: favicon must use the latest 512x512 {APP_ICON}")
-        touch = [icon for icon in parser.icons if (icon.get("rel") or "").lower() == "apple-touch-icon"]
+        favicon = [item for item in parser.icons if (item.get("rel") or "").lower() == "icon"]
+        if len(favicon) != 1 or favicon[0].get("href") != APP_ICON or favicon[0].get("sizes") != icon_size:
+            errors.append(f"{name}: favicon must use the actual {icon_size} {APP_ICON}")
+        touch = [item for item in parser.icons if (item.get("rel") or "").lower() == "apple-touch-icon"]
         if len(touch) != 1 or touch[0].get("href") != APP_ICON:
             errors.append(f"{name}: apple-touch-icon must use {APP_ICON}")
         if name != "404.html":
@@ -254,20 +248,18 @@ def main() -> int:
 
     for forbidden in (
         "raw.githubusercontent.com/masarray/arsas/main/Assets/screenshot",
-        "https://masarray.github.io/arsas/assets/social-card.svg",
-        'href="assets/favicon.svg"',
-        "{{", "github.com/masarray/arsas#quick-start", '<meta name="keywords"',
-        *FORBIDDEN_PUBLIC_COPY,
+        "https://masarray.github.io/arsas/assets/social-card.svg", 'href="assets/favicon.svg"',
+        "{{", "github.com/masarray/arsas#quick-start", '<meta name="keywords"', *FORBIDDEN_COPY,
     ):
-        if forbidden in combined.lower() if forbidden in FORBIDDEN_PUBLIC_COPY else forbidden in combined:
+        haystack = combined.lower() if forbidden in FORBIDDEN_COPY else combined
+        if forbidden in haystack:
             errors.append(f"deployable HTML contains forbidden value: {forbidden}")
 
-    home = (site / "index.html").read_text(encoding="utf-8") if (site / "index.html").exists() else ""
-    download = (site / "download.html").read_text(encoding="utf-8") if (site / "download.html").exists() else ""
-    about = (site / "about.html").read_text(encoding="utf-8") if (site / "about.html").exists() else ""
-    solutions = (site / "solutions.html").read_text(encoding="utf-8") if (site / "solutions.html").exists() else ""
-    guides = (site / "guides.html").read_text(encoding="utf-8") if (site / "guides.html").exists() else ""
-
+    def page_text(name: str) -> str:
+        path = site / name
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+    home, download, about = page_text("index.html"), page_text("download.html"), page_text("about.html")
+    solutions, guides = page_text("solutions.html"), page_text("guides.html")
     for value in (INSTALLER, 'href="download.html"', 'href="solutions.html"', "arsas-rcb-scl-export.webp", '"codeRepository"'):
         if value not in home:
             errors.append(f"homepage missing product contract: {value}")
@@ -288,18 +280,15 @@ def main() -> int:
 
     validate_sitemap(site, pages, errors)
     validate_latest(site, errors)
-    validate_manifest(site, errors)
-
-    icon = site / APP_ICON
+    if icon_size:
+        validate_manifest(site, icon_size, errors)
     social = site / "assets/social-card.png"
-    for path, expected in ((icon, (512, 512)), (social, (1200, 630))):
-        if path.exists():
-            try:
-                actual = png_size(path)
-                if actual != expected:
-                    errors.append(f"{path.name}: expected {expected}, found {actual}")
-            except ValueError as exc:
-                errors.append(f"{path.name}: {exc}")
+    if social.exists():
+        try:
+            if png_size(social) != (1200, 630):
+                errors.append(f"social-card.png: expected 1200x630, found {png_size(social)}")
+        except ValueError as exc:
+            errors.append(f"social-card.png: {exc}")
 
     errors = list(dict.fromkeys(errors))
     if errors:
@@ -307,7 +296,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"ARSAS product-build validation passed: {len(pages)} pages, 11 troubleshooting guides and latest 512px favicon.")
+    print(f"ARSAS product-build validation passed: {len(pages)} pages, 11 guides and latest {icon_size} favicon.")
     return 0
 
 
