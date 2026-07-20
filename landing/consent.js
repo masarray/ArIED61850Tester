@@ -5,6 +5,8 @@
   const banner = document.querySelector('[data-consent-banner]');
   const status = document.querySelector('[data-consent-status]');
   const analyticsConfig = document.getElementById('arsas-analytics');
+  const measurementId = analyticsConfig instanceof HTMLScriptElement ? analyticsConfig.dataset.measurementId || '' : '';
+  const analyticsAvailable = /^G-[A-Z0-9]+$/.test(measurementId);
   const acceptButtons = document.querySelectorAll('[data-consent-accept]');
   const rejectButtons = document.querySelectorAll('[data-consent-reject]');
   const manageButtons = document.querySelectorAll('[data-consent-manage]');
@@ -23,7 +25,7 @@
   });
 
   const readPreference = () => {
-    if (dntEnabled) return 'denied';
+    if (dntEnabled || !analyticsAvailable) return 'denied';
     try {
       const value = window.localStorage.getItem(STORAGE_KEY);
       return value === 'granted' || value === 'denied' ? value : 'unset';
@@ -35,7 +37,8 @@
   const setStatus = preference => {
     if (!status) return;
     const isId = document.documentElement.lang === 'id';
-    if (dntEnabled) status.textContent = isId ? 'Do Not Track aktif; analitik tetap nonaktif.' : 'Do Not Track is active; analytics stays disabled.';
+    if (!analyticsAvailable) status.textContent = isId ? 'Analitik belum diaktifkan pada deployment ini.' : 'Analytics is not enabled on this deployment.';
+    else if (dntEnabled) status.textContent = isId ? 'Do Not Track aktif; analitik tetap nonaktif.' : 'Do Not Track is active; analytics stays disabled.';
     else if (preference === 'granted') status.textContent = isId ? 'Analitik opsional diizinkan.' : 'Optional analytics is allowed.';
     else if (preference === 'denied') status.textContent = isId ? 'Analitik opsional ditolak.' : 'Optional analytics is declined.';
     else status.textContent = isId ? 'Belum ada pilihan analitik.' : 'No analytics preference has been saved.';
@@ -45,14 +48,12 @@
     document.documentElement.dataset.analyticsConsent = preference;
     setStatus(preference);
     window.dispatchEvent(new CustomEvent(EVENT_NAME, {
-      detail: { analytics: preference, source, doNotTrack: dntEnabled }
+      detail: { analytics: preference, source, doNotTrack: dntEnabled, available: analyticsAvailable }
     }));
   };
 
   const loadAnalytics = () => {
-    if (analyticsLoaded || dntEnabled || !(analyticsConfig instanceof HTMLScriptElement)) return;
-    const measurementId = analyticsConfig.dataset.measurementId || '';
-    if (!/^G-[A-Z0-9]+$/.test(measurementId)) return;
+    if (analyticsLoaded || dntEnabled || !analyticsAvailable) return;
     analyticsLoaded = true;
     window.gtag('consent', 'update', {
       analytics_storage: 'granted',
@@ -71,8 +72,11 @@
     if (!(banner instanceof HTMLElement)) return;
     banner.hidden = false;
     document.body.classList.add('consent-open');
+    acceptButtons.forEach(button => {
+      if (button instanceof HTMLButtonElement) button.disabled = !analyticsAvailable || dntEnabled;
+    });
     if (focus) {
-      const first = banner.querySelector('button');
+      const first = banner.querySelector('button:not([disabled])');
       if (first instanceof HTMLButtonElement) first.focus();
     }
   };
@@ -85,7 +89,7 @@
 
   const save = preference => {
     const previous = readPreference();
-    const effective = dntEnabled ? 'denied' : preference;
+    const effective = dntEnabled || !analyticsAvailable ? 'denied' : preference;
     try {
       window.localStorage.setItem(STORAGE_KEY, effective);
     } catch {
@@ -109,12 +113,13 @@
 
   const initial = readPreference();
   setStatus(initial);
-  if (initial === 'unset' && !dntEnabled) showBanner(false);
+  if (analyticsAvailable && initial === 'unset' && !dntEnabled) showBanner(false);
   dispatch(initial === 'granted' ? 'granted' : 'denied', 'initial');
   if (initial === 'granted') loadAnalytics();
 
   window.ARSASConsent = Object.freeze({
     storageKey: STORAGE_KEY,
+    available: analyticsAvailable,
     doNotTrack: dntEnabled,
     get: readPreference,
     manage: () => showBanner(true),
