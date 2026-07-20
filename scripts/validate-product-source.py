@@ -130,7 +130,10 @@ def validate_template(path: Path, content_type: str | None, language: str | None
         src = image.get("src") or ""
         if image.get("alt") is None or not image.get("width") or not image.get("height"):
             errors.append(f"{label}: incomplete image metadata {src}")
-        if "{{" not in src and not (LANDING / src).exists():
+        if src == "assets/app-icon.png":
+            if not APP_ICON_SOURCE.exists():
+                errors.append(f"{label}: missing build-generated application brand icon source")
+        elif "{{" not in src and not (LANDING / src).exists():
             errors.append(f"{label}: missing image {src}")
 
     unknown = set(re.findall(r"\{\{([A-Z0-9_]+)\}\}", text)) - KNOWN_TOKENS
