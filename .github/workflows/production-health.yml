@@ -19,6 +19,15 @@ on:
       - "scripts/verify-pages-deployment.py"
       - ".github/workflows/pages.yml"
       - ".github/workflows/production-health.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "landing/**"
+      - "scripts/resolve-site-source-commit.py"
+      - "scripts/check-measurement-readiness.py"
+      - "scripts/verify-pages-deployment.py"
+      - ".github/workflows/pages.yml"
+      - ".github/workflows/production-health.yml"
 
 permissions:
   contents: read
@@ -125,7 +134,7 @@ jobs:
 
       - name: Trigger one self-healing Pages deployment
         id: repair
-        if: steps.initial.outcome != 'success' && (github.event_name == 'schedule' || inputs.repair != false)
+        if: steps.initial.outcome != 'success' && (github.event_name == 'schedule' || github.event_name == 'push' || inputs.repair == true)
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -172,7 +181,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: scheduled-production-attestation-${{ github.run_number }}
+          name: production-attestation-${{ github.run_number }}
           path: _health/
           if-no-files-found: error
           retention-days: 90
@@ -185,7 +194,7 @@ jobs:
         run: |
           set -euo pipefail
           issue_number="$(gh issue list --state open --search "${HEALTH_ISSUE_TITLE} in:title" --json number,title --jq '.[] | select(.title == env.HEALTH_ISSUE_TITLE) | .number' | head -n 1)"
-          body="Production attestation could not prove the current deployable website commit after one automatic redeployment.\n\nExpected site source: \`${{ steps.source.outputs.site_source_commit }}\`\nRepository HEAD: \`${{ steps.source.outputs.head_commit }}\`\nWorkflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\n\nReview the \`scheduled-production-attestation-${{ github.run_number }}\` artifact before changing DNS, Pages settings or cache behavior."
+          body="Production attestation could not prove the current deployable website commit after one automatic redeployment.\n\nExpected site source: \`${{ steps.source.outputs.site_source_commit }}\`\nRepository HEAD: \`${{ steps.source.outputs.head_commit }}\`\nWorkflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\n\nReview the \`production-attestation-${{ github.run_number }}\` artifact before changing DNS, Pages settings or cache behavior."
           if [ -n "$issue_number" ]; then
             gh issue comment "$issue_number" --body "$body"
           else
