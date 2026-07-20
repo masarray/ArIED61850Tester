@@ -317,7 +317,7 @@ public partial class MainWindow
                 availability);
         }
         var filteredModel = SclReportControlFilter.FilterLiveModel(exportModel, row.Reference);
-        var liveResult = await Task.Run(() => LiveIedSclExporter.WriteFiles(
+        var liveResult = await Task.Run(() => AuthoritativeLiveIedSclExporter.WriteFiles(
             filteredModel,
             outputPath,
             new LiveIedSclExportOptions
@@ -325,6 +325,7 @@ public partial class MainWindow
                 Profile = "full-model",
                 SchemaProfile = schema,
                 IpAddress = device.IpAddress,
+                IedNameOverride = device.Name,
                 IncludeLowConfidenceTypes = true,
                 IncludeRuntimeStateComment = false
             }), cancellationToken);
