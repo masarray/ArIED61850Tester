@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Validate product templates, identity and distribution contracts before build."""
+"""Validate ARSAS product templates, partials, identity and page registry before build."""
 
 from __future__ import annotations
 
 import json
 import re
 import sys
-import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LANDING = ROOT / "landing"
-TEMPLATES = (LANDING / "templates" / "index.html", LANDING / "templates" / "download.html")
+TEMPLATES = LANDING / "templates"
+PARTIALS = LANDING / "partials"
+INCLUDE_PATTERN = re.compile(r"\{\{>\s*([a-z0-9-]+)\s*\}\}", re.IGNORECASE)
+VERIFICATION_FILE_PATTERN = re.compile(r"google[a-z0-9]+\.html", re.IGNORECASE)
 KNOWN_TOKENS = {
     "ARSAS_VERSION", "PRODUCT_NAME", "CANONICAL_ROOT", "REPOSITORY_URL",
     "ENGINE_REPOSITORY_URL", "AUTHOR_NAME", "AUTHOR_LINKEDIN", "AUTHOR_GITHUB",
@@ -29,6 +31,7 @@ class Parser(HTMLParser):
         self.description: str | None = None
         self.meta: dict[str, str] = {}
         self.images: list[dict[str, str | None]] = []
+        self.body_page: str | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
@@ -36,6 +39,8 @@ class Parser(HTMLParser):
             self.in_title = True
         elif tag == "h1":
             self.h1 += 1
+        elif tag == "body":
+            self.body_page = values.get("data-page")
         elif tag == "meta":
             key = values.get("name") or values.get("property")
             value = values.get("content")
@@ -55,11 +60,31 @@ class Parser(HTMLParser):
             self.title += data
 
 
+def expand_partials(text: str, errors: list[str], stack: tuple[str, ...] = ()) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1).lower()
+        if name in stack:
+            errors.append("circular partial include: " + " -> ".join((*stack, name)))
+            return ""
+        path = PARTIALS / f"{name}.html"
+        if not path.exists():
+            errors.append(f"missing partial: {path.relative_to(ROOT)}")
+            return ""
+        return expand_partials(path.read_text(encoding="utf-8"), errors, (*stack, name))
+
+    previous = None
+    while previous != text:
+        previous = text
+        text = INCLUDE_PATTERN.sub(replace, text)
+    return text
+
+
 def validate_template(path: Path, errors: list[str]) -> None:
     if not path.exists():
         errors.append(f"missing template: {path.relative_to(ROOT)}")
         return
-    text = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8")
+    text = expand_partials(raw, errors)
     parser = Parser()
     parser.feed(text)
     label = path.relative_to(ROOT)
@@ -70,6 +95,8 @@ def validate_template(path: Path, errors: list[str]) -> None:
         errors.append(f"{label}: expected one h1, found {parser.h1}")
     if not parser.description or not 70 <= len(parser.description) <= 220:
         errors.append(f"{label}: invalid meta description")
+    if not parser.body_page:
+        errors.append(f"{label}: missing body data-page")
     for key in ("og:title", "og:description", "og:url", "og:image", "og:image:width", "og:image:height"):
         if not parser.meta.get(key):
             errors.append(f"{label}: missing {key}")
@@ -83,14 +110,26 @@ def validate_template(path: Path, errors: list[str]) -> None:
     unknown = set(re.findall(r"\{\{([A-Z0-9_]+)\}\}", text)) - KNOWN_TOKENS
     if unknown:
         errors.append(f"{label}: unknown tokens {sorted(unknown)}")
+    if INCLUDE_PATTERN.search(text):
+        errors.append(f"{label}: unresolved partial include")
+    if '<meta name="keywords"' in text.lower():
+        errors.append(f"{label}: obsolete meta keywords must not be used")
+    if "github.com/masarray/arsas#quick-start" in text:
+        errors.append(f"{label}: ordinary users are routed to README quick-start")
+    if path.name != "404.html":
+        for include in ("{{> header}}", "{{> footer}}"):
+            if include not in raw:
+                errors.append(f"{label}: missing shared include {include}")
+    if path.name not in ("index.html", "download.html", "404.html") and "{{> download-cta}}" not in raw:
+        errors.append(f"{label}: missing shared download CTA")
 
 
-def validate_config(errors: list[str]) -> None:
+def read_config(errors: list[str]) -> dict[str, object] | None:
     try:
         config = json.loads((LANDING / "site.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"landing/site.json: {exc}")
-        return
+        return None
 
     checks = {
         ("product", "name"): "ARSAS",
@@ -110,31 +149,98 @@ def validate_config(errors: list[str]) -> None:
         value = config.get(group, {}).get(key) if isinstance(config.get(group), dict) else None
         if not isinstance(value, str) or not value.startswith("https://github.com/masarray/arsas/releases/latest/download/"):
             errors.append(f"landing/site.json: invalid {group}.{key}")
+    return config
+
+
+def validate_registry(config: dict[str, object], errors: list[str]) -> list[Path]:
+    pages = config.get("pages")
+    if not isinstance(pages, list) or not pages:
+        errors.append("landing/site.json: pages registry must be a non-empty list")
+        return []
+
+    paths: set[str] = set()
+    template_names: set[str] = set()
+    templates: list[Path] = []
+    for entry in pages:
+        if not isinstance(entry, dict):
+            errors.append("landing/site.json: every page entry must be an object")
+            continue
+        path = entry.get("path")
+        template = entry.get("template")
+        if not isinstance(path, str) or not isinstance(template, str):
+            errors.append("landing/site.json: every page entry needs string path and template")
+            continue
+        if path in paths:
+            errors.append(f"landing/site.json: duplicate page path {path}")
+        if template in template_names:
+            errors.append(f"landing/site.json: duplicate template {template}")
+        paths.add(path)
+        template_names.add(template)
+        template_path = TEMPLATES / template
+        templates.append(template_path)
+        if not template_path.exists():
+            errors.append(f"landing/site.json: missing registered template {template}")
+        if path not in ("", "404.html") and not path.endswith(".html"):
+            errors.append(f"landing/site.json: invalid page path {path}")
+        if path == "404.html" and entry.get("index", True) is not False:
+            errors.append("landing/site.json: 404.html must be excluded from sitemap")
+
+    actual = {path.name for path in TEMPLATES.glob("*.html")}
+    missing_from_registry = sorted(actual - template_names)
+    missing_from_templates = sorted(template_names - actual)
+    if missing_from_registry:
+        errors.append("templates missing from registry: " + ", ".join(missing_from_registry))
+    if missing_from_templates:
+        errors.append("registry templates missing from disk: " + ", ".join(missing_from_templates))
+    return templates
+
+
+def validate_partials(errors: list[str]) -> None:
+    header = (PARTIALS / "header.html").read_text(encoding="utf-8") if (PARTIALS / "header.html").exists() else ""
+    footer = (PARTIALS / "footer.html").read_text(encoding="utf-8") if (PARTIALS / "footer.html").exists() else ""
+    cta = (PARTIALS / "download-cta.html").read_text(encoding="utf-8") if (PARTIALS / "download-cta.html").exists() else ""
+    for page in ("overview", "capabilities", "reporting", "control", "architecture", "roadmap", "about", "download"):
+        if f'data-nav-page="{page}"' not in header:
+            errors.append(f"shared header missing navigation key {page}")
+    for value in ("{{AUTHOR_NAME}}", "{{AUTHOR_LINKEDIN}}", "{{REPOSITORY_URL}}"):
+        if value not in footer:
+            errors.append(f"shared footer missing {value}")
+    for value in ("{{ARSAS_VERSION}}", "{{INSTALLER_URL}}", 'href="download.html"'):
+        if value not in cta:
+            errors.append(f"shared download CTA missing {value}")
 
 
 def validate_contract(errors: list[str]) -> None:
-    home = TEMPLATES[0].read_text(encoding="utf-8") if TEMPLATES[0].exists() else ""
-    download = TEMPLATES[1].read_text(encoding="utf-8") if TEMPLATES[1].exists() else ""
-    about_path = LANDING / "about.html"
-    about = about_path.read_text(encoding="utf-8") if about_path.exists() else ""
-
+    home = (TEMPLATES / "index.html").read_text(encoding="utf-8") if (TEMPLATES / "index.html").exists() else ""
+    download = (TEMPLATES / "download.html").read_text(encoding="utf-8") if (TEMPLATES / "download.html").exists() else ""
+    about = (TEMPLATES / "about.html").read_text(encoding="utf-8") if (TEMPLATES / "about.html").exists() else ""
     for value in ("{{INSTALLER_URL}}", 'href="download.html"', "arsas-rcb-scl-export.webp", "{{AUTHOR_LINKEDIN}}", '"codeRepository"'):
         if value not in home:
             errors.append(f"homepage template missing {value}")
     for value in ("{{INSTALLER_URL}}", "{{PORTABLE_URL}}", "{{CHECKSUMS_URL}}", "{{ARSAS_VERSION}}"):
         if value not in download:
             errors.append(f"download template missing {value}")
-    for value in ("https://www.linkedin.com/in/ari-sulistiono", "https://github.com/masarray"):
+    for value in ("{{AUTHOR_LINKEDIN}}", "{{AUTHOR_GITHUB}}", "{{REPOSITORY_URL}}"):
         if value not in about:
-            errors.append(f"about page missing {value}")
-    if "github.com/masarray/arsas#quick-start" in home + download:
-        errors.append("primary product templates route users to README quick-start")
+            errors.append(f"about template missing {value}")
+
+    root_html = sorted(
+        path.name
+        for path in LANDING.glob("*.html")
+        if not VERIFICATION_FILE_PATTERN.fullmatch(path.name)
+    )
+    if root_html:
+        errors.append("legacy landing HTML remains outside templates: " + ", ".join(root_html))
+    verification_files = [path.name for path in LANDING.glob("google*.html") if VERIFICATION_FILE_PATTERN.fullmatch(path.name)]
+    if len(verification_files) > 1:
+        errors.append("multiple Google verification HTML files are present")
+    if (LANDING / "sitemap.xml").exists():
+        errors.append("landing/sitemap.xml must be generated from site.json, not stored as a second source")
 
     required_files = (
         "assets/screenshots/arsas-first-launch.webp",
         "assets/screenshots/arsas-rcb-scl-export.webp",
         "assets/social-card.png",
-        "about.html",
         "site.webmanifest",
         "robots.txt",
     )
@@ -143,31 +249,21 @@ def validate_contract(errors: list[str]) -> None:
             errors.append(f"missing landing source file: {relative}")
 
 
-def validate_sitemap(errors: list[str]) -> None:
-    try:
-        ET.parse(LANDING / "sitemap.xml")
-    except (OSError, ET.ParseError) as exc:
-        errors.append(f"landing/sitemap.xml: {exc}")
-        return
-    sitemap = (LANDING / "sitemap.xml").read_text(encoding="utf-8")
-    if "https://masarray.github.io/arsas/about.html" not in sitemap:
-        errors.append("landing/sitemap.xml missing about.html")
-
-
 def main() -> int:
     errors: list[str] = []
-    validate_config(errors)
-    for template in TEMPLATES:
+    config = read_config(errors)
+    templates = validate_registry(config, errors) if config else []
+    validate_partials(errors)
+    for template in templates:
         validate_template(template, errors)
     validate_contract(errors)
-    validate_sitemap(errors)
     errors = list(dict.fromkeys(errors))
     if errors:
         print("ARSAS product-source validation failed:", file=sys.stderr)
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("ARSAS product-source validation passed.")
+    print(f"ARSAS product-source validation passed: {len(templates)} registered templates use shared product chrome.")
     return 0
 
 

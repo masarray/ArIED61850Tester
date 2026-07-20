@@ -32,41 +32,29 @@
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "ARSAS",
-    "operatingSystem": "Windows 10, Windows 11",
-    "softwareVersion": "{{ARSAS_VERSION}}",
-    "applicationCategory": "DeveloperApplication",
-    "downloadUrl": "{{INSTALLER_URL}}",
-    "codeRepository": "{{REPOSITORY_URL}}",
-    "author": {"@type": "Person", "name": "{{AUTHOR_NAME}}", "sameAs": ["{{AUTHOR_LINKEDIN}}", "{{AUTHOR_GITHUB}}"]},
-    "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+    "@graph": [
+      {"@type": "SoftwareApplication", "name": "ARSAS", "operatingSystem": "Windows 10, Windows 11", "softwareVersion": "{{ARSAS_VERSION}}", "applicationCategory": "DeveloperApplication", "downloadUrl": "{{INSTALLER_URL}}", "codeRepository": "{{REPOSITORY_URL}}", "author": {"@type": "Person", "name": "{{AUTHOR_NAME}}", "sameAs": ["{{AUTHOR_LINKEDIN}}", "{{AUTHOR_GITHUB}}"]}, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}},
+      {"@type": "BreadcrumbList", "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{CANONICAL_ROOT}}"},
+        {"@type": "ListItem", "position": 2, "name": "Download", "item": "{{CANONICAL_ROOT}}download.html"}
+      ]}
+    ]
   }
   </script>
 </head>
-<body>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <header class="site-header"><div class="container nav-shell"><a class="brand" href="./" aria-label="ARSAS home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"></svg></span><span>ARSAS <small>IEC 61850 workstation</small></span></a><button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" data-menu-toggle><svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><nav class="nav-links" aria-label="Primary navigation" data-nav-links><a href="./">Overview</a><a href="features.html">Capabilities</a><a href="smart-reporting.html">Smart Reporting</a><a href="control.html">Smart Control</a><a href="architecture.html">Architecture</a><a href="roadmap.html">Roadmap</a><a href="about.html">About</a><a class="nav-cta" href="download.html" aria-current="page">Download</a></nav></div></header>
-
+<body data-page="download">
+  {{> header}}
   <main id="main">
     <section class="page-hero download-hero"><div class="container"><div class="breadcrumbs"><a href="./">Home</a> / Download</div><span class="eyebrow">Official product route · stable release · Windows x64</span><h1>Download <span class="gradient-text">ARSAS {{ARSAS_VERSION}}</span> for Windows.</h1><p>This page is the official user-facing distribution center. Download the stable installer directly, choose the portable package for controlled test laptops, or verify the release with published SHA-256 checksums—without navigating the source repository.</p><div class="hero-actions"><a class="btn btn-primary" href="{{INSTALLER_URL}}" download>Download Windows installer</a><a class="btn" href="#options">View all options</a></div><div class="release-status"><span class="dot"></span><span>Latest stable channel · ARSAS {{ARSAS_VERSION}}</span></div></div></section>
 
-    <section class="section section-tight" id="options"><div class="container download-grid">
-      <article class="download-card recommended"><span class="kicker">Recommended</span><h2>Windows installer</h2><p>Best for normal engineering workstations. It provides a predictable installed location, Start menu integration and the standard application update path.</p><div class="download-meta">ARSAS-Windows-x64-Setup.exe · Windows x64 · self-contained</div><a class="btn btn-primary download-action" href="{{INSTALLER_URL}}" download>Download installer</a></article>
-      <article class="download-card"><span class="kicker">Portable</span><h2>Portable package</h2><p>Useful for approved test laptops, temporary evaluation or controlled environments where a traditional installation is not preferred.</p><div class="download-meta">ARSAS-Windows-x64-Portable.zip · latest stable release</div><a class="btn download-action" href="{{PORTABLE_URL}}" download>Download portable ZIP</a></article>
-    </div></section>
+    <section class="section section-tight" id="options"><div class="container download-grid"><article class="download-card recommended"><span class="kicker">Recommended</span><h2>Windows installer</h2><p>Best for normal engineering workstations. It provides a predictable installed location, Start menu integration and the standard application update path.</p><div class="download-meta">ARSAS-Windows-x64-Setup.exe · Windows x64 · self-contained</div><a class="btn btn-primary download-action" href="{{INSTALLER_URL}}" download>Download installer</a></article><article class="download-card"><span class="kicker">Portable</span><h2>Portable package</h2><p>Useful for approved test laptops, temporary evaluation or controlled environments where a traditional installation is not preferred.</p><div class="download-meta">ARSAS-Windows-x64-Portable.zip · latest stable release</div><a class="btn download-action" href="{{PORTABLE_URL}}" download>Download portable ZIP</a></article></div></section>
 
-    <section class="section section-tight"><div class="container split-panel">
-      <article class="panel"><span class="kicker">Release integrity</span><h2>Verify the package</h2><p>Download the published checksum file and retain it with the package when preparing laboratory, FAT, SAT or commissioning work.</p><div class="section-actions"><a class="btn" href="{{CHECKSUMS_URL}}" download>Download SHA-256 checksums</a></div></article>
-      <article class="panel"><span class="kicker">System scope</span><h2>Prepared for Windows engineering workstations</h2><ul class="check-list"><li>Windows 10 or Windows 11, x64</li><li>Self-contained application package</li><li>Npcap required for raw-Ethernet GOOSE and Sampled Values workflows</li><li>Approved laboratory or commissioning network</li></ul></article>
-    </div></section>
+    <section class="section section-tight"><div class="container split-panel"><article class="panel"><span class="kicker">Release integrity</span><h2>Verify the package</h2><p>Download the published checksum file and retain it with the package when preparing laboratory, FAT, SAT or commissioning work.</p><div class="section-actions"><a class="btn" href="{{CHECKSUMS_URL}}" download>Download SHA-256 checksums</a></div></article><article class="panel"><span class="kicker">System scope</span><h2>Prepared for Windows engineering workstations</h2><ul class="check-list"><li>Windows 10 or Windows 11, x64</li><li>Self-contained application package</li><li>Npcap required for raw-Ethernet GOOSE and Sampled Values workflows</li><li>Approved laboratory or commissioning network</li></ul></article></div></section>
 
     <section class="section section-tight"><div class="container"><div class="section-head center"><span class="kicker">Before active use</span><h2>Download readiness is not switching authority.</h2><p>Confirm the package integrity, network interface, IED scope, access permissions, test procedure and independent verification before using control, report configuration, file access or other active functions.</p></div><div class="metric-grid"><div class="metric"><strong>Free</strong><span>No account, subscription or license key</span></div><div class="metric"><strong>Transparent</strong><span>Public source, maturity labels and known boundaries</span></div><div class="metric"><strong>Verifiable</strong><span>Published checksums and stable release evidence</span></div><div class="metric"><strong>Practical</strong><span>Installer and portable routes for engineering use</span></div></div></div></section>
 
     <section class="section section-tight"><div class="container callout"><div class="callout-grid"><div><span class="kicker">Need context first?</span><h2>Review the real application and current capability scope.</h2><p>See live MMS discovery, Smart Reporting, GOOSE, fault-record transfer, selected-RCB SCL export, diagnostics and guarded control before installation.</p></div><div class="section-actions"><a class="btn btn-primary" href="features.html">Explore capabilities</a><a class="btn" href="about.html">About ARSAS</a></div></div></div></section>
   </main>
-
-  <footer class="site-footer"><div class="container"><div class="footer-grid"><div class="footer-brand"><a class="brand" href="./"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"></svg></span><span>ARSAS</span></a><p>Official downloads for practical IEC 61850 testing, commissioning and troubleshooting.</p></div><div><div class="footer-title">Product</div><div class="footer-links"><a href="./">Overview</a><a href="features.html">Capabilities</a><a href="smart-reporting.html">Smart Reporting</a><a href="control.html">Smart Control</a><a href="download.html">Download</a></div></div><div><div class="footer-title">Trust</div><div class="footer-links"><a href="about.html">About</a><a href="architecture.html">Architecture</a><a href="roadmap.html">Roadmap</a><a href="{{REPOSITORY_URL}}">Source code</a></div></div></div><div class="footer-bottom"><span>© <span data-year>2026</span> {{AUTHOR_NAME}}.</span><span>Community edition: GPL-3.0-or-later.</span></div></div></footer>
-  <script src="app.js" defer></script>
+  {{> footer}}
 </body>
 </html>

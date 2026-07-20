@@ -32,6 +32,16 @@
     }, { passive: true });
   }
 
-  const year = document.querySelector('[data-year]');
-  if (year) year.textContent = String(new Date().getFullYear());
+  const page = document.body.dataset.page;
+  if (page) {
+    document.querySelectorAll('[data-nav-page]').forEach(link => {
+      if (!(link instanceof HTMLAnchorElement)) return;
+      if (link.dataset.navPage === page) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  document.querySelectorAll('[data-year]').forEach(node => {
+    node.textContent = String(new Date().getFullYear());
+  });
 })();

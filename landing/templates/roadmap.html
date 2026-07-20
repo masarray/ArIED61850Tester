@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ARSAS Roadmap — IEC 61850 Engineering Software Direction</title>
+  <meta name="description" content="Review the ARSAS roadmap from current MMS, Smart Reporting, GOOSE, file transfer, SCL and control features toward deeper Sampled Values, SCL authoring and test evidence." />
+  <meta name="author" content="{{AUTHOR_NAME}}" />
+  <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
+  <meta name="theme-color" content="#07111f" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="canonical" href="{{CANONICAL_ROOT}}roadmap.html" />
+  <link rel="manifest" href="site.webmanifest" />
+  <link rel="icon" href="assets/app-icon.png" type="image/png" sizes="256x256" />
+  <link rel="apple-touch-icon" href="assets/app-icon.png" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="audit.css" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="ARSAS" />
+  <meta property="og:title" content="ARSAS Product Roadmap" />
+  <meta property="og:description" content="A transparent path from the current IEC 61850 workstation toward deeper SMV, SCL authoring and reusable engineering evidence." />
+  <meta property="og:url" content="{{CANONICAL_ROOT}}roadmap.html" />
+  <meta property="og:image" content="{{CANONICAL_ROOT}}assets/social-card.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="ARSAS IEC 61850 product roadmap" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="ARSAS Roadmap" />
+  <meta name="twitter:description" content="Current capabilities, engineering previews and planned IEC 61850 product direction." />
+  <meta name="twitter:image" content="{{CANONICAL_ROOT}}assets/social-card.png" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {"@type": "WebPage", "url": "{{CANONICAL_ROOT}}roadmap.html", "name": "ARSAS Product Roadmap", "author": {"@id": "{{CANONICAL_ROOT}}about.html#ari-sulistiono"}},
+      {"@type": "BreadcrumbList", "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "Home", "item": "{{CANONICAL_ROOT}}"},
+        {"@type": "ListItem", "position": 2, "name": "Roadmap", "item": "{{CANONICAL_ROOT}}roadmap.html"}
+      ]}
+    ]
+  }
+  </script>
+</head>
+<body data-page="roadmap">
+  {{> header}}
+  <main id="main">
+    <section class="page-hero"><div class="container"><div class="breadcrumbs"><a href="./">Home</a> / Roadmap</div><span class="eyebrow">Transparent maturity · no promised dates · evidence before claims</span><h1>Grow one capable workstation into a <span class="gradient-text">broader IEC 61850 engineering platform.</span></h1><p>ARSAS already provides practical MMS, Smart Reporting, GOOSE, file-transfer, SCL-assisted, diagnostic and control workflows. The roadmap shows how those foundations can expand while preserving explicit maturity labels and testable engineering boundaries.</p><div class="hero-actions"><a class="btn btn-primary" href="download.html">Use the current stable release</a><a class="btn" href="#priorities">Review priorities</a></div></div></section>
+
+    <section class="section section-tight"><div class="container metric-grid"><div class="metric"><strong>Available</strong><span>Implemented, documented and included in the stable product route</span></div><div class="metric"><strong>Preview</strong><span>Usable for controlled engineering evaluation with known limitations</span></div><div class="metric"><strong>Planned</strong><span>Accepted product direction without a promised delivery date</span></div><div class="metric"><strong>Research</strong><span>Feasibility and architecture still being evaluated</span></div></div></section>
+
+    <section class="section"><div class="container"><div class="section-head center"><span class="kicker">Current foundation</span><h2>Strong building blocks are already available.</h2><p>Future work extends the existing per-IED runtime and reusable engine instead of creating disconnected utilities.</p></div><div class="feature-grid">
+      <article class="card"><span class="kicker">Available</span><h3>MMS and Smart Reporting</h3><p>Independent associations, live discovery, BRCB/URCB, specific gap recovery, bounded polling, quality, timestamps, SOE and diagnostics.</p></article>
+      <article class="card"><span class="kicker">Available</span><h3>GOOSE engineering</h3><p>Read-only capture, stream supervision, ordered payloads, SCL/live binding and visible mismatch evidence.</p></article>
+      <article class="card"><span class="kicker">Available</span><h3>File transfer</h3><p>MMS file-service probing, browsing, bounded download and a focused fault-record workflow.</p></article>
+      <article class="card"><span class="kicker">Available</span><h3>Control validation</h3><p>Live control-model discovery, typed Direct/SBO sequences, termination, errors, timing and feedback.</p></article>
+      <article class="card"><span class="kicker">Available</span><h3>SCL-assisted integration</h3><p>Common SCL input, endpoint extraction, configured context, comparison foundations and selected-RCB export services.</p></article>
+      <article class="card"><span class="kicker">Preview</span><h3>Sampled Values</h3><p>Per-IED SMV entry points and viewer workflow ready for deeper decoding, binding, supervision and performance validation.</p></article>
+    </div></div></section>
+
+    <section class="section" id="priorities"><div class="container"><div class="section-head center"><span class="kicker">Priority sequence</span><h2>Finish dependable workflows before expanding breadth.</h2><p>Roadmap order follows engineering value, failure visibility and reusable engine capability rather than feature-count marketing.</p></div><div class="step-list">
+      <article class="step"><span class="step-number">01</span><div><h3>Deepen fault-record workflows</h3><p>Improve directory compatibility, record-set recognition, transfer evidence and controlled export.</p></div></article>
+      <article class="step"><span class="step-number">02</span><div><h3>Strengthen SCL comparison and export</h3><p>Expand configured-to-live comparison, validation and integration-oriented output without silent XML assumptions.</p></div></article>
+      <article class="step"><span class="step-number">03</span><div><h3>Complete production-grade SMV engineering</h3><p>Add deeper stream decoding, SCL binding, scaling, quality supervision and sustained-performance validation.</p></div></article>
+      <article class="step"><span class="step-number">04</span><div><h3>Build visual SCL authoring</h3><p>Create validated authoring for IED, communication, DataSet, reporting, GOOSE, SMV and edition-aware export structures.</p></div></article>
+      <article class="step"><span class="step-number">05</span><div><h3>Preserve reusable test evidence</h3><p>Make project state, selected signals, outcomes and diagnostics easier to compare and reuse across recurring work.</p></div></article>
+    </div></div></section>
+
+    <section class="section section-tight"><div class="container split-panel"><article class="panel"><span class="kicker">Not a promise calendar</span><h2>Maturity labels are stronger than speculative dates.</h2><p>Features move from research to preview and available only when their failure semantics, performance and engineering boundaries are sufficiently understood.</p></article><article class="panel"><span class="kicker">Current users first</span><h2>The stable product remains the priority.</h2><p>Roadmap work must not make current MMS, reporting, GOOSE, file, SCL, diagnostic or control workflows less dependable or harder to use.</p><div class="section-actions"><a class="btn" href="features.html">Current capabilities</a></div></article></div></section>
+
+    {{> download-cta}}
+  </main>
+  {{> footer}}
+</body>
+</html>
