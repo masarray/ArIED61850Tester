@@ -135,6 +135,7 @@ jobs:
       - name: Trigger one self-healing Pages deployment
         id: repair
         if: steps.initial.outcome != 'success' && (github.event_name == 'schedule' || github.event_name == 'push' || inputs.repair == true)
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -145,12 +146,12 @@ jobs:
           echo "Triggered Deploy product website for main after stale public attestation."
 
       - name: Wait for deployment startup
-        if: steps.repair.outputs.triggered == 'true'
+        if: always() && steps.repair.outputs.triggered == 'true'
         run: sleep 25
 
       - name: Final public attestation after repair
         id: final
-        if: steps.initial.outcome != 'success'
+        if: always() && steps.initial.outcome != 'success'
         continue-on-error: true
         run: |
           python scripts/verify-pages-deployment.py \
@@ -173,6 +174,7 @@ jobs:
             echo "- Repository HEAD: \`${{ steps.source.outputs.head_commit }}\`"
             echo "- Stable release: \`${{ steps.contract.outputs.stable_version }}\`"
             echo "- Initial attestation: **${{ steps.initial.outcome }}**"
+            echo "- Repair step: **${{ steps.repair.outcome || 'not-needed' }}**"
             echo "- Repair triggered: **${{ steps.repair.outputs.triggered || 'false' }}**"
             echo "- Final attestation: **${{ steps.final.outcome || 'not-needed' }}**"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -187,14 +189,14 @@ jobs:
           retention-days: 90
 
       - name: Open or update persistent health issue
-        if: steps.initial.outcome != 'success' && steps.final.outcome != 'success'
+        if: always() && steps.initial.outcome != 'success' && steps.final.outcome != 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           issue_number="$(gh issue list --state open --search "${HEALTH_ISSUE_TITLE} in:title" --json number,title --jq '.[] | select(.title == env.HEALTH_ISSUE_TITLE) | .number' | head -n 1)"
-          body="Production attestation could not prove the current deployable website commit after one automatic redeployment.\n\nExpected site source: \`${{ steps.source.outputs.site_source_commit }}\`\nRepository HEAD: \`${{ steps.source.outputs.head_commit }}\`\nWorkflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\n\nReview the \`production-attestation-${{ github.run_number }}\` artifact before changing DNS, Pages settings or cache behavior."
+          body="Production attestation could not prove the current deployable website commit after one bounded repair attempt.\n\nExpected site source: \`${{ steps.source.outputs.site_source_commit }}\`\nRepository HEAD: \`${{ steps.source.outputs.head_commit }}\`\nRepair step: \`${{ steps.repair.outcome || 'not-run' }}\`\nWorkflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\n\nReview the \`production-attestation-${{ github.run_number }}\` artifact before changing DNS, Pages settings or cache behavior."
           if [ -n "$issue_number" ]; then
             gh issue comment "$issue_number" --body "$body"
           else
@@ -202,7 +204,7 @@ jobs:
           fi
 
       - name: Close recovered health issue
-        if: steps.initial.outcome == 'success' || steps.final.outcome == 'success'
+        if: always() && (steps.initial.outcome == 'success' || steps.final.outcome == 'success')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -214,5 +216,5 @@ jobs:
           fi
 
       - name: Enforce public production health
-        if: steps.initial.outcome != 'success' && steps.final.outcome != 'success'
+        if: always() && steps.initial.outcome != 'success' && steps.final.outcome != 'success'
         run: exit 1
