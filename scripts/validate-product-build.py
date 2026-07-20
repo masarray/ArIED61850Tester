@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the rendered ARSAS product website."""
+"""Validate the rendered ARSAS product website and stable release trust contracts."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ EXPECTED_MEDIA = (
 INSTALLER = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe"
 PORTABLE = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Portable.zip"
 CHECKSUMS = "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-SHA256SUMS.txt"
+ISSUES = "https://github.com/masarray/arsas/issues/new/choose"
 REPOSITORY = "https://github.com/masarray/arsas"
 LINKEDIN = "https://www.linkedin.com/in/ari-sulistiono"
 AUTHOR_GITHUB = "https://github.com/masarray"
@@ -39,6 +40,7 @@ GUIDE_PAGES = {
 LOCALIZED_PAIRS = {
     "index.html": "id.html",
     "download.html": "unduh.html",
+    "release-notes.html": "catatan-rilis.html",
     "guides.html": "panduan.html",
     "mms-client.html": "mms-client-iec61850.html",
     "smart-reporting.html": "smart-reporting-iec61850.html",
@@ -127,41 +129,94 @@ def page_url(name: str) -> str:
     return CANONICAL_ROOT if name == "index.html" else CANONICAL_ROOT + name
 
 
-def validate_latest(site: Path, errors: list[str]) -> None:
+def validate_latest(site: Path, errors: list[str]) -> tuple[str | None, dict[str, object] | None]:
     path = site / "latest.json"
     if not path.exists():
         errors.append("missing latest.json")
-        return
+        return None, None
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"latest.json: {exc}")
-        return
+        return None, None
+    version = str(manifest.get("version", ""))
     if manifest.get("schemaVersion") != 1 or manifest.get("product") != "ARSAS":
         errors.append("latest.json has invalid identity")
     if manifest.get("channel") != "stable":
         errors.append("latest.json channel must be stable")
-    if not re.fullmatch(r"\d+\.\d+\.\d+", str(manifest.get("version", ""))):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         errors.append("latest.json version is invalid")
-    installer = manifest.get("installer")
-    if not isinstance(installer, dict) or installer.get("url") != INSTALLER:
-        errors.append("latest.json installer URL is invalid")
-    elif not re.fullmatch(r"[0-9a-fA-F]{64}", str(installer.get("sha256", ""))):
-        errors.append("latest.json installer SHA-256 is invalid")
+    expected = {
+        "installer": ("ARSAS-Windows-x64-Setup.exe", INSTALLER),
+        "portable": ("ARSAS-Windows-x64-Portable.zip", PORTABLE),
+    }
+    for key, (name, url) in expected.items():
+        package = manifest.get(key)
+        if not isinstance(package, dict) or package.get("name") != name or package.get("url") != url:
+            errors.append(f"latest.json {key} identity is invalid")
+            continue
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", str(package.get("sha256", ""))):
+            errors.append(f"latest.json {key} SHA-256 is invalid")
+        if not 1_000_000 <= int(package.get("sizeBytes", 0)) <= 500_000_000:
+            errors.append(f"latest.json {key} size is invalid")
+    checksums = manifest.get("checksums")
+    if not isinstance(checksums, dict) or checksums.get("url") != CHECKSUMS:
+        errors.append("latest.json checksums URL is invalid")
+    if not str(manifest.get("publishedAtUtc", "")):
+        errors.append("latest.json publishedAtUtc is missing")
+    signing = manifest.get("codeSigning")
+    if not isinstance(signing, dict) or signing.get("status") not in {"signed", "unsigned"}:
+        errors.append("latest.json code-signing status is invalid")
+    return version or None, manifest
 
 
-def validate_build_info(site: Path, errors: list[str]) -> tuple[str | None, list[str]]:
+def validate_release_notes(site: Path, stable_version: str | None, evidence: dict[str, object] | None, errors: list[str]) -> None:
+    path = site / "release-notes.json"
+    if not path.exists():
+        errors.append("missing release-notes.json")
+        return
+    try:
+        notes = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"release-notes.json: {exc}")
+        return
+    if notes.get("schemaVersion") != 1 or notes.get("product") != "ARSAS" or notes.get("version") != stable_version:
+        errors.append("release-notes.json identity or version is invalid")
+    for key in ("title", "titleId", "summary", "summaryId", "issuesUrl", "releaseUrl"):
+        if not isinstance(notes.get(key), str) or not str(notes.get(key)).strip():
+            errors.append(f"release-notes.json missing {key}")
+    for key in ("highlights", "highlightsId", "improvements", "improvementsId", "knownLimitations", "knownLimitationsId"):
+        value = notes.get(key)
+        if not isinstance(value, list) or len(value) < 4:
+            errors.append(f"release-notes.json {key} is incomplete")
+    if notes.get("issuesUrl") != ISSUES:
+        errors.append("release-notes.json issue reporting URL is invalid")
+    signing = notes.get("codeSigning")
+    evidence_signing = evidence.get("codeSigning") if isinstance(evidence, dict) else None
+    if not isinstance(signing, dict) or not isinstance(evidence_signing, dict) or signing.get("status") != evidence_signing.get("status"):
+        errors.append("release-notes.json signing status does not match latest.json")
+    elif signing.get("status") == "unsigned" and "Authenticode" not in str(signing.get("detail", "")):
+        errors.append("unsigned release notes do not explain Authenticode status")
+    screenshot = notes.get("screenshot")
+    if not isinstance(screenshot, dict) or not (site / str(screenshot.get("src", ""))).exists():
+        errors.append("release-notes.json stable screenshot is missing")
+
+
+def validate_build_info(site: Path, errors: list[str]) -> tuple[str | None, str | None, list[str]]:
     path = site / "build-info.json"
     try:
         info = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"build-info.json: {exc}")
-        return None, []
+        return None, None, []
     if info.get("schemaVersion") != 3:
         errors.append("build-info.json schemaVersion must be 3")
     version = str(info.get("version", ""))
+    stable_version = str(info.get("stableReleaseVersion", ""))
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         errors.append("build-info.json version is invalid")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", stable_version):
+        errors.append("build-info.json stableReleaseVersion is invalid")
     if info.get("repository") != REPOSITORY:
         errors.append("build-info.json repository is invalid")
     author = info.get("author")
@@ -174,16 +229,16 @@ def validate_build_info(site: Path, errors: list[str]) -> tuple[str | None, list
     pages = info.get("pages")
     if not isinstance(pages, list) or not pages or not all(isinstance(page, str) for page in pages):
         errors.append("build-info.json pages registry is invalid")
-        return version or None, []
+        return version or None, stable_version or None, []
     if len(pages) != len(set(pages)):
         errors.append("build-info.json pages registry contains duplicates")
-    if len(pages) != 44:
-        errors.append(f"build-info.json must contain 44 pages, found {len(pages)}")
+    if len(pages) != 46:
+        errors.append(f"build-info.json must contain 46 pages, found {len(pages)}")
     if not GUIDE_PAGES.issubset(set(pages)):
         errors.append("build-info.json is missing troubleshooting guide pages")
-    if not LOCALIZED_PAGES.issubset(set(pages)) or "technical-review.html" not in pages:
-        errors.append("build-info.json is missing authority or Indonesian pages")
-    return version or None, list(pages)
+    if not LOCALIZED_PAGES.issubset(set(pages)) or "technical-review.html" not in pages or "release-notes.html" not in pages:
+        errors.append("build-info.json is missing authority, release or Indonesian pages")
+    return version or None, stable_version or None, list(pages)
 
 
 def validate_sitemap(site: Path, pages: list[str], errors: list[str]) -> None:
@@ -223,15 +278,11 @@ def validate_sitemap(site: Path, pages: list[str], errors: list[str]) -> None:
             errors.append(f"sitemap.xml missing {missing}")
         for extra in sorted(set(records) - expected_urls):
             errors.append(f"sitemap.xml contains unexpected URL {extra}")
-    if len(records) != 43:
-        errors.append(f"sitemap.xml must contain 43 indexable URLs, found {len(records)}")
+    if len(records) != 45:
+        errors.append(f"sitemap.xml must contain 45 indexable URLs, found {len(records)}")
 
     for english, indonesian in LOCALIZED_PAIRS.items():
-        expected = {
-            "en": page_url(english),
-            "id": page_url(indonesian),
-            "x-default": page_url(english),
-        }
+        expected = {"en": page_url(english), "id": page_url(indonesian), "x-default": page_url(english)}
         for page in (english, indonesian):
             if records.get(page_url(page)) != expected:
                 errors.append(f"sitemap.xml localized alternate set is incomplete for {page}")
@@ -258,19 +309,21 @@ def validate_manifest(site: Path, icon_size: str, errors: list[str]) -> None:
 def expected_alternates_for(name: str) -> dict[str, str] | None:
     for english, indonesian in LOCALIZED_PAIRS.items():
         if name in (english, indonesian):
-            return {
-                "en": page_url(english),
-                "id": page_url(indonesian),
-                "x-default": page_url(english),
-            }
+            return {"en": page_url(english), "id": page_url(indonesian), "x-default": page_url(english)}
     return None
 
 
 def main() -> int:
     site = Path(sys.argv[1] if len(sys.argv) > 1 else "_site").resolve()
     errors: list[str] = []
-    version, pages = validate_build_info(site, errors)
-    for relative in tuple(pages) + EXPECTED_MEDIA + ("site.json", "build-info.json", "sitemap.xml", "site.webmanifest", INDEXNOW_FILE):
+    version, stable_version, pages = validate_build_info(site, errors)
+    stable_from_latest, evidence = validate_latest(site, errors)
+    if stable_version and stable_from_latest and stable_version != stable_from_latest:
+        errors.append("build-info.json stable release does not match latest.json")
+    validate_release_notes(site, stable_from_latest, evidence, errors)
+    for relative in tuple(pages) + EXPECTED_MEDIA + (
+        "site.json", "latest.json", "release-notes.json", "build-info.json", "sitemap.xml", "site.webmanifest", INDEXNOW_FILE,
+    ):
         if not (site / relative).exists():
             errors.append(f"missing deployable file: {relative}")
     key_path = site / INDEXNOW_FILE
@@ -331,9 +384,9 @@ def main() -> int:
             for image in brand_images:
                 if image.get("width") != str(icon_width) or image.get("height") != str(icon_height):
                     errors.append(f"{name}: brand mark metadata must match {icon_size}")
-            for value in (LINKEDIN, REPOSITORY, 'href="download.html"', 'href="technical-review.html"'):
+            for value in (LINKEDIN, REPOSITORY, 'href="download.html"', 'href="technical-review.html"', 'href="release-notes.html"'):
                 if value not in text:
-                    errors.append(f"{name}: shared authority or download route missing {value}")
+                    errors.append(f"{name}: shared authority, release or download route missing {value}")
         expected_alternates = expected_alternates_for(name)
         if expected_alternates is not None and parser.alternates != expected_alternates:
             errors.append(f"{name}: page-level hreflang alternates are incomplete")
@@ -352,7 +405,7 @@ def main() -> int:
                 errors.append(f"{name}: Indonesian language metadata is incomplete")
             if 'hreflang="en"' not in text:
                 errors.append(f"{name}: missing English counterpart link")
-            for value in ('href="unduh.html"', "Semua opsi unduhan"):
+            for value in ('href="unduh.html"', "Verifikasi dan bandingkan paket"):
                 if value not in text:
                     errors.append(f"{name}: Indonesian download CTA is incomplete: {value}")
 
@@ -373,12 +426,13 @@ def main() -> int:
     solutions, guides = page_text("solutions.html"), page_text("guides.html")
     review, id_home = page_text("technical-review.html"), page_text("id.html")
     id_guides, id_download = page_text("panduan.html"), page_text("unduh.html")
+    release, release_id = page_text("release-notes.html"), page_text("catatan-rilis.html")
     for value in (INSTALLER, 'href="download.html"', 'href="solutions.html"', "arsas-rcb-scl-export.webp", '"codeRepository"'):
         if value not in home:
             errors.append(f"homepage missing product contract: {value}")
-    for value in (INSTALLER, PORTABLE, CHECKSUMS, "Latest stable channel", "Download Center"):
+    for value in (INSTALLER, PORTABLE, CHECKSUMS, "Installer vs Portable", "Copy installer SHA-256", "Known limitations", "Not Authenticode-signed", ISSUES, 'href="release-notes.html"'):
         if value not in download:
-            errors.append(f"download page missing {value}")
+            errors.append(f"download page missing release trust value {value}")
     for value in (LINKEDIN, AUTHOR_GITHUB, REPOSITORY, "Download Center"):
         if value not in about + home:
             errors.append(f"author or open-source identity missing {value}")
@@ -391,12 +445,18 @@ def main() -> int:
     for value in ("Claim governance", "Not a conformance certificate", LINKEDIN, REPOSITORY):
         if value not in review:
             errors.append(f"technical review page missing {value}")
-    for localized in LOCALIZED_PAGES - {"id.html", "panduan.html", "unduh.html"}:
+    for localized in LOCALIZED_PAGES - {"id.html", "panduan.html", "unduh.html", "catatan-rilis.html"}:
         if f'href="{localized}"' not in id_home and f'href="{localized}"' not in id_guides:
             errors.append(f"Indonesian hubs do not link to {localized}")
-    for value in (INSTALLER, PORTABLE, CHECKSUMS, "Unduh ARSAS", "Semua opsi unduhan"):
+    for value in (INSTALLER, PORTABLE, CHECKSUMS, "Installer vs Portable", "Salin SHA-256 installer", "Known limitations", "Belum ditandatangani dengan Authenticode", ISSUES, 'href="catatan-rilis.html"', "Verifikasi dan bandingkan paket"):
         if value not in id_download:
-            errors.append(f"Indonesian download page missing {value}")
+            errors.append(f"Indonesian download page missing release trust value {value}")
+    for value in ("What’s new", "Known limitations", "Not Authenticode-signed", ISSUES, "arsas-live-values.webp", "Download Windows installer"):
+        if value not in release:
+            errors.append(f"English release notes missing {value}")
+    for value in ("Yang baru", "Known limitations", "Belum ditandatangani dengan Authenticode", ISSUES, "arsas-live-values.webp", "Unduh Windows installer"):
+        if value not in release_id:
+            errors.append(f"Indonesian release notes missing {value}")
 
     localized_contracts = {
         "mms-client-iec61850.html": ("MMS Client", "DataSet"),
@@ -417,9 +477,12 @@ def main() -> int:
 
     if version and f'"softwareVersion":"{version}"' not in home.replace(" ", ""):
         errors.append("homepage softwareVersion does not match build-info.json")
+    if stable_version:
+        for name, text in (("download.html", download), ("unduh.html", id_download), ("release-notes.html", release), ("catatan-rilis.html", release_id)):
+            if stable_version not in text:
+                errors.append(f"{name}: stable release version is missing")
 
     validate_sitemap(site, pages, errors)
-    validate_latest(site, errors)
     if icon_size:
         validate_manifest(site, icon_size, errors)
     social = site / "assets/social-card.png"
@@ -436,7 +499,10 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"ARSAS product-build validation passed: {len(pages)} pages, 11 guides, 12 Indonesian pages, 12 hreflang pairs, authority policy, IndexNow and {icon_size} brand artwork.")
+    print(
+        f"ARSAS product-build validation passed: {len(pages)} pages, 11 guides, 13 Indonesian pages, "
+        f"13 hreflang pairs, 45 indexable URLs, release trust, authority policy, IndexNow and {icon_size} brand artwork."
+    )
     return 0
 
 
