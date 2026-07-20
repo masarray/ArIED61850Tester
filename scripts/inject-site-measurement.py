@@ -11,6 +11,7 @@ from pathlib import Path
 
 PLACEHOLDER = "__ARSAS_GA4_MEASUREMENT_ID__"
 MEASUREMENT_PATTERN = re.compile(r"G-[A-Z0-9]+")
+CONSENT_STORAGE_KEY = "arsas_analytics_consent_v1"
 
 
 def configure(site: Path, measurement_id: str) -> None:
@@ -19,8 +20,9 @@ def configure(site: Path, measurement_id: str) -> None:
         raise SystemExit("Measurement ID must use the G-XXXXXXXX format")
     if not site.is_dir():
         raise SystemExit(f"Site directory does not exist: {site}")
-    if not (site / "analytics.js").is_file():
-        raise SystemExit("Built site is missing analytics.js")
+    for required in ("analytics.js", "consent.js"):
+        if not (site / required).is_file():
+            raise SystemExit(f"Built site is missing {required}")
 
     build_info_path = site / "build-info.json"
     if not build_info_path.is_file():
@@ -49,16 +51,23 @@ def configure(site: Path, measurement_id: str) -> None:
     build_info["measurement"] = {
         "provider": "google-analytics-4",
         "enabled": bool(measurement_id),
+        "configElement": "arsas-analytics",
         "client": "analytics.js",
+        "consentController": "consent.js",
+        "consentRequired": True,
+        "defaultConsent": "denied",
+        "preferenceStorage": "localStorage",
+        "preferenceKey": CONSENT_STORAGE_KEY,
         "doNotTrackRespected": True,
         "advertisingSignals": False,
+        "adPersonalizationSignals": False,
     }
     build_info_path.write_text(
         json.dumps(build_info, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
-    state = "enabled" if measurement_id else "disabled"
+    state = "configured behind consent" if measurement_id else "disabled"
     print(f"ARSAS site measurement {state}: {replacements} registered pages configured.")
 
 
