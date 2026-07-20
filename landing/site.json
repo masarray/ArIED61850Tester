@@ -16,5 +16,16 @@
     "installer": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe",
     "portable": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Portable.zip",
     "checksums": "https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-SHA256SUMS.txt"
-  }
+  },
+  "pages": [
+    {"path": "", "template": "index.html", "changefreq": "weekly", "priority": "1.0", "lastmod": "2026-07-20"},
+    {"path": "download.html", "template": "download.html", "changefreq": "weekly", "priority": "0.98", "lastmod": "2026-07-20"},
+    {"path": "features.html", "template": "features.html", "changefreq": "monthly", "priority": "0.94", "lastmod": "2026-07-20"},
+    {"path": "smart-reporting.html", "template": "smart-reporting.html", "changefreq": "monthly", "priority": "0.95", "lastmod": "2026-07-20"},
+    {"path": "control.html", "template": "control.html", "changefreq": "monthly", "priority": "0.90", "lastmod": "2026-07-20"},
+    {"path": "architecture.html", "template": "architecture.html", "changefreq": "monthly", "priority": "0.82", "lastmod": "2026-07-20"},
+    {"path": "roadmap.html", "template": "roadmap.html", "changefreq": "monthly", "priority": "0.78", "lastmod": "2026-07-20"},
+    {"path": "about.html", "template": "about.html", "changefreq": "monthly", "priority": "0.76", "lastmod": "2026-07-20"},
+    {"path": "404.html", "template": "404.html", "index": false, "lastmod": "2026-07-20"}
+  ]
 }
