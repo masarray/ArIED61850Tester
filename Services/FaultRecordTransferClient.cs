@@ -31,39 +31,7 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var sameEndpoint =
-                _host.Equals(normalizedHost, StringComparison.OrdinalIgnoreCase) &&
-                _port == normalizedPort;
-            if (sameEndpoint && IsSessionHealthy())
-                return;
-
-            // The connection operation token must not own the lifetime of a reusable MMS
-            // receive pump. A completed scan token is replaced before download; without this
-            // rebind the old cancellation would stop confirmed-service response routing while
-            // the association still appeared to be MmsInitiated.
-            if (_session.IsTransportConnected ||
-                _session.IsMmsInitiated ||
-                _session.IsReceivePumpRunning)
-            {
-                await _session.DisposeAsync().ConfigureAwait(false);
-            }
-
-            await _session.ConnectAsync(
-                normalizedHost,
-                normalizedPort,
-                TimeSpan.FromSeconds(8),
-                cancellationToken).ConfigureAwait(false);
-            await _session.RebindReceivePumpToSessionLifetimeAsync(cancellationToken).ConfigureAwait(false);
-
-            if (!IsSessionHealthy())
-            {
-                throw new InvalidOperationException(
-                    $"The dedicated fault-record association is not operational after connect. {ConnectionState}.");
-            }
-
-            _host = normalizedHost;
-            _port = normalizedPort;
-            _service = new Iec61850FaultRecordService(_session);
+            await ConnectCoreAsync(normalizedHost, normalizedPort, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -110,37 +78,46 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         try
         {
             EnsureReady();
-            var result = await Iec61850FaultRecordInteroperableDownloader.DownloadAsync(
-                _session,
+            var first = await DownloadCoreAsync(
                 record,
                 destinationRoot,
-                new Iec61850FaultRecordDownloadOptions
-                {
-                    MaximumTotalBytes = 1024L * 1024L * 1024L,
-                    MaximumFileBytes = 512L * 1024L * 1024L,
-                    MaximumReadOperationsPerFile = 100_000,
-                    // Completeness describes COMTRADE companion coverage; it must not block
-                    // MMS FileOpen/FileRead of files that the IED actually exposes.
-                    RequireCompleteRecord = false,
-                    RequireDeclaredSizeMatch = false
-                },
                 progress,
                 cancellationToken).ConfigureAwait(false);
 
-            if (result.IsSuccess)
-                return result;
+            if (first.IsSuccess)
+                return first;
 
-            return new Iec61850FaultRecordDownloadResult
+            // A transport or receive-pump fault invalidates the MMS association. The
+            // downloader cleans its temporary directory, so one complete reconnect and
+            // bounded retry is safe and avoids turning a transient connection loss into
+            // an immediate user-visible failure.
+            if (!IsSessionHealthy() &&
+                !cancellationToken.IsCancellationRequested &&
+                !string.IsNullOrWhiteSpace(_host))
             {
-                IsSuccess = false,
-                RecordId = result.RecordId,
-                DestinationDirectory = result.DestinationDirectory,
-                Files = result.Files,
-                BytesTransferred = result.BytesTransferred,
-                Message =
-                    $"{result.Message} Dedicated session: {ConnectionState}. " +
-                    $"Receive routing: {ValueOrDash(_session.LastReceiveRoutingSummary)}"
-            };
+                var firstFailure = first.Message;
+                await ConnectCoreAsync(_host, _port, cancellationToken).ConfigureAwait(false);
+                var recovered = await DownloadCoreAsync(
+                    record,
+                    destinationRoot,
+                    progress,
+                    cancellationToken).ConfigureAwait(false);
+
+                if (recovered.IsSuccess)
+                {
+                    return CloneResult(
+                        recovered,
+                        $"{recovered.Message} Automatic reconnect recovered the interrupted MMS file-transfer session.");
+                }
+
+                return CloneResult(
+                    recovered,
+                    $"Initial transfer failed and the dedicated session became unhealthy. " +
+                    $"Automatic reconnect/retry also failed. First failure: {firstFailure}\n\n" +
+                    $"Retry failure: {BuildFailureMessage(recovered)}");
+            }
+
+            return CloneResult(first, BuildFailureMessage(first));
         }
         finally
         {
@@ -162,6 +139,86 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
             _operationGate.Dispose();
         }
     }
+
+    private async Task ConnectCoreAsync(
+        string normalizedHost,
+        int normalizedPort,
+        CancellationToken cancellationToken)
+    {
+        var sameEndpoint =
+            _host.Equals(normalizedHost, StringComparison.OrdinalIgnoreCase) &&
+            _port == normalizedPort;
+        if (sameEndpoint && IsSessionHealthy())
+            return;
+
+        // The connection operation token must not own the lifetime of a reusable MMS
+        // receive pump. A completed scan token is replaced before download; without this
+        // rebind the old cancellation would stop confirmed-service response routing while
+        // the association still appeared to be MmsInitiated.
+        if (_session.IsTransportConnected ||
+            _session.IsMmsInitiated ||
+            _session.IsReceivePumpRunning)
+        {
+            await _session.DisposeAsync().ConfigureAwait(false);
+        }
+
+        _service = null;
+        await _session.ConnectAsync(
+            normalizedHost,
+            normalizedPort,
+            TimeSpan.FromSeconds(8),
+            cancellationToken).ConfigureAwait(false);
+        await _session.RebindReceivePumpToSessionLifetimeAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!IsSessionHealthy())
+        {
+            throw new InvalidOperationException(
+                $"The dedicated fault-record association is not operational after connect. {ConnectionState}.");
+        }
+
+        _host = normalizedHost;
+        _port = normalizedPort;
+        _service = new Iec61850FaultRecordService(_session);
+    }
+
+    private async Task<Iec61850FaultRecordDownloadResult> DownloadCoreAsync(
+        Iec61850FaultRecordSet record,
+        string destinationRoot,
+        IProgress<Iec61850FaultRecordDownloadProgress>? progress,
+        CancellationToken cancellationToken)
+        => await Iec61850FaultRecordInteroperableDownloader.DownloadAsync(
+            _session,
+            record,
+            destinationRoot,
+            new Iec61850FaultRecordDownloadOptions
+            {
+                MaximumTotalBytes = 1024L * 1024L * 1024L,
+                MaximumFileBytes = 512L * 1024L * 1024L,
+                MaximumReadOperationsPerFile = 100_000,
+                // Completeness describes COMTRADE companion coverage; it must not block
+                // MMS FileOpen/FileRead of files that the IED actually exposes.
+                RequireCompleteRecord = false,
+                RequireDeclaredSizeMatch = false
+            },
+            progress,
+            cancellationToken).ConfigureAwait(false);
+
+    private string BuildFailureMessage(Iec61850FaultRecordDownloadResult result)
+        => $"{result.Message} Dedicated session: {ConnectionState}. " +
+           $"Receive routing: {ValueOrDash(_session.LastReceiveRoutingSummary)}";
+
+    private static Iec61850FaultRecordDownloadResult CloneResult(
+        Iec61850FaultRecordDownloadResult source,
+        string message)
+        => new()
+        {
+            IsSuccess = source.IsSuccess,
+            RecordId = source.RecordId,
+            DestinationDirectory = source.DestinationDirectory,
+            Files = source.Files,
+            BytesTransferred = source.BytesTransferred,
+            Message = message
+        };
 
     private bool IsSessionHealthy()
         => _session.IsMmsInitiated &&
