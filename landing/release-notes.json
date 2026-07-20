@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "product": "ARSAS",
+  "version": "1.6.17",
+  "title": "Verified updates and safer release delivery",
+  "titleId": "Update terverifikasi dan distribusi release yang lebih aman",
+  "summary": "ARSAS 1.6.17 adds a verified stable-update workflow, clearer user-controlled update handling, and reliability fixes around IED-card protocol actions and fault-record access.",
+  "summaryId": "ARSAS 1.6.17 menambahkan workflow update stabil yang terverifikasi, kontrol update yang tetap berada di tangan user, serta perbaikan reliability pada action protokol di IED card dan akses fault record.",
+  "highlights": [
+    "Verified in-app update checks use the official ARSAS manifest and accept only the official stable installer URL.",
+    "Downloaded installers are checked against the published byte size and SHA-256 before Windows is allowed to open them.",
+    "The update prompt shows download progress, supports a 24-hour defer action, and keeps installation under user control.",
+    "Release publication uses the exact installer and portable artifacts that passed CI hash verification and installer smoke testing."
+  ],
+  "highlightsId": [
+    "Pemeriksaan update di dalam aplikasi menggunakan manifest resmi ARSAS dan hanya menerima URL installer stable yang resmi.",
+    "Installer yang diunduh diperiksa terhadap ukuran byte dan SHA-256 yang dipublikasikan sebelum diizinkan dibuka oleh Windows.",
+    "Prompt update menampilkan progress download, menyediakan penundaan 24 jam, dan tetap menyerahkan keputusan instalasi kepada user.",
+    "Publikasi release menggunakan artifact installer dan portable yang sama persis dengan artifact yang lulus verifikasi hash CI dan installer smoke test."
+  ],
+  "improvements": [
+    "Protocol capability actions were moved to a dedicated IED-card row so lifecycle controls remain visible.",
+    "Capability-state refreshes are marshalled safely to the WPF UI thread when discovery state changes in the background.",
+    "Installer, portable ZIP and a combined SHA-256 file are published together through the stable release channel.",
+    "The public updater manifest is refreshed only after verified publication evidence has been recorded."
+  ],
+  "improvementsId": [
+    "Action capability protokol dipindahkan ke row khusus pada IED card agar lifecycle control tetap terlihat.",
+    "Refresh status capability dipindahkan secara aman ke WPF UI thread ketika status discovery berubah dari background worker.",
+    "Installer, portable ZIP dan file SHA-256 gabungan dipublikasikan bersama melalui stable release channel.",
+    "Manifest updater publik hanya diperbarui setelah evidence publikasi terverifikasi selesai direkam."
+  ],
+  "knownLimitations": [
+    "Windows x64 is the only packaged desktop platform in the current stable release.",
+    "The public binaries are not Authenticode code-signed; Windows SmartScreen may show an unrecognized-publisher warning.",
+    "Raw-Ethernet GOOSE and Sampled Values workflows require Npcap, an approved adapter and suitable capture permissions.",
+    "Relay file-service directories and COMTRADE companion sets vary by vendor; a successful transfer does not prove record completeness or scaling correctness.",
+    "Active control and report-configuration writes still require approved procedures, plant authority and independent verification.",
+    "ARSAS is an engineering evidence tool and does not provide IEC 61850 conformance certification or replace calibrated protection testing."
+  ],
+  "knownLimitationsId": [
+    "Windows x64 adalah satu-satunya platform desktop yang dipaketkan pada stable release saat ini.",
+    "Binary publik belum ditandatangani dengan Authenticode; Windows SmartScreen dapat menampilkan peringatan unrecognized publisher.",
+    "Workflow raw-Ethernet GOOSE dan Sampled Values memerlukan Npcap, adapter yang disetujui dan permission capture yang sesuai.",
+    "Struktur directory file service relay dan pasangan file COMTRADE berbeda antar-vendor; transfer berhasil tidak membuktikan record lengkap atau scaling sudah benar.",
+    "Active control dan write pada konfigurasi reporting tetap memerlukan procedure yang disetujui, plant authority dan independent verification.",
+    "ARSAS adalah tool engineering evidence dan tidak memberikan sertifikasi conformity IEC 61850 atau menggantikan calibrated protection testing."
+  ],
+  "codeSigning": {
+    "status": "unsigned",
+    "label": "Not Authenticode-signed",
+    "labelId": "Belum ditandatangani dengan Authenticode",
+    "detail": "The current public Windows installer and portable binaries do not carry a commercial Authenticode publisher signature. Verify the published SHA-256 value before use. SmartScreen warnings are therefore possible and are not hidden from users.",
+    "detailId": "Installer Windows dan binary portable publik saat ini belum memiliki commercial Authenticode publisher signature. Verifikasi nilai SHA-256 yang dipublikasikan sebelum digunakan. Karena itu peringatan SmartScreen masih mungkin muncul dan status ini tidak disembunyikan dari user."
+  },
+  "screenshot": {
+    "src": "assets/screenshots/arsas-live-values.webp",
+    "width": 1507,
+    "height": 893,
+    "alt": "ARSAS 1.6.17 stable live-value workspace with IED, value, quality and timestamp evidence",
+    "altId": "Workspace live value ARSAS 1.6.17 stable dengan evidence IED, value, quality dan timestamp",
+    "caption": "Representative ARSAS 1.6.17 stable workspace. Device identity, value, quality, timestamp and acquisition context remain visible together.",
+    "captionId": "Representasi workspace stable ARSAS 1.6.17. Identitas device, value, quality, timestamp dan konteks acquisition tetap terlihat bersama."
+  },
+  "issuesUrl": "https://github.com/masarray/arsas/issues/new/choose",
+  "releaseUrl": "https://github.com/masarray/arsas/releases/tag/v1.6.17"
+}

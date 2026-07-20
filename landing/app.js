@@ -44,4 +44,27 @@
   document.querySelectorAll('[data-year]').forEach(node => {
     node.textContent = String(new Date().getFullYear());
   });
+
+  document.querySelectorAll('[data-copy-value]').forEach(button => {
+    if (!(button instanceof HTMLButtonElement)) return;
+    const original = button.textContent || '';
+    const copiedLabel = document.documentElement.lang === 'id' ? 'Tersalin' : 'Copied';
+    const failedLabel = document.documentElement.lang === 'id' ? 'Salin manual' : 'Copy manually';
+    let restoreTimer;
+
+    button.addEventListener('click', async () => {
+      const value = button.dataset.copyValue || '';
+      if (!value) return;
+      window.clearTimeout(restoreTimer);
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = copiedLabel;
+      } catch {
+        button.textContent = failedLabel;
+      }
+      restoreTimer = window.setTimeout(() => {
+        button.textContent = original;
+      }, 2200);
+    });
+  });
 })();
