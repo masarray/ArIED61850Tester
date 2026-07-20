@@ -11,10 +11,6 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
-EXPECTED_PAGES = (
-    "index.html", "download.html", "about.html", "smart-reporting.html",
-    "features.html", "control.html", "architecture.html", "roadmap.html", "404.html",
-)
 EXPECTED_MEDIA = (
     "assets/app-icon.png", "assets/social-card.png",
     "assets/screenshots/arsas-first-launch.webp",
@@ -43,6 +39,8 @@ class Parser(HTMLParser):
         self.title = ""
         self.in_title = False
         self.description: str | None = None
+        self.body_page: str | None = None
+        self.nav_pages: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
@@ -50,8 +48,12 @@ class Parser(HTMLParser):
             self.in_title = True
         elif tag == "h1":
             self.h1 += 1
+        elif tag == "body":
+            self.body_page = values.get("data-page")
         elif tag == "meta" and values.get("name", "").lower() == "description":
             self.description = values.get("content")
+        if tag == "a" and values.get("data-nav-page"):
+            self.nav_pages.add(values["data-nav-page"] or "")
         for key in ("href", "src"):
             value = values.get(key)
             if value:
@@ -106,13 +108,15 @@ def validate_latest(site: Path, errors: list[str]) -> None:
         errors.append("latest.json installer SHA-256 is invalid")
 
 
-def validate_build_info(site: Path, errors: list[str]) -> str | None:
+def validate_build_info(site: Path, errors: list[str]) -> tuple[str | None, list[str]]:
     path = site / "build-info.json"
     try:
         info = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         errors.append(f"build-info.json: {exc}")
-        return None
+        return None, []
+    if info.get("schemaVersion") != 2:
+        errors.append("build-info.json schemaVersion must be 2")
     version = str(info.get("version", ""))
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         errors.append("build-info.json version is invalid")
@@ -121,19 +125,44 @@ def validate_build_info(site: Path, errors: list[str]) -> str | None:
     author = info.get("author")
     if not isinstance(author, dict) or author.get("name") != "Ari Sulistiono":
         errors.append("build-info.json author is invalid")
-    return version or None
+    pages = info.get("pages")
+    if not isinstance(pages, list) or not pages or not all(isinstance(page, str) for page in pages):
+        errors.append("build-info.json pages registry is invalid")
+        return version or None, []
+    if len(pages) != len(set(pages)):
+        errors.append("build-info.json pages registry contains duplicates")
+    return version or None, list(pages)
+
+
+def validate_sitemap(site: Path, pages: list[str], errors: list[str]) -> None:
+    path = site / "sitemap.xml"
+    if not path.exists():
+        errors.append("missing sitemap.xml")
+        return
+    text = path.read_text(encoding="utf-8")
+    root = "https://masarray.github.io/arsas/"
+    for page in pages:
+        if page == "404.html":
+            if root + page in text:
+                errors.append("sitemap.xml must not index 404.html")
+            continue
+        url = root if page == "index.html" else root + page
+        if url not in text:
+            errors.append(f"sitemap.xml missing {page}")
 
 
 def main() -> int:
     site = Path(sys.argv[1] if len(sys.argv) > 1 else "_site").resolve()
     errors: list[str] = []
 
-    for relative in EXPECTED_PAGES + EXPECTED_MEDIA + ("site.json", "build-info.json"):
+    version, pages = validate_build_info(site, errors)
+    for relative in tuple(pages) + EXPECTED_MEDIA + ("site.json", "build-info.json", "sitemap.xml"):
         if not (site / relative).exists():
             errors.append(f"missing deployable file: {relative}")
 
     combined = ""
-    for name in EXPECTED_PAGES:
+    expected_nav = {"overview", "capabilities", "reporting", "control", "architecture", "roadmap", "about", "download"}
+    for name in pages:
         page = site / name
         if not page.exists():
             continue
@@ -141,11 +170,14 @@ def main() -> int:
         combined += text
         parser = Parser()
         parser.feed(text)
-        if name != "404.html":
-            if parser.h1 != 1:
-                errors.append(f"{name}: expected one h1")
-            if not parser.title.strip() or not parser.description:
-                errors.append(f"{name}: title or description is missing")
+        if parser.h1 != 1:
+            errors.append(f"{name}: expected one h1")
+        if not parser.title.strip() or not parser.description:
+            errors.append(f"{name}: title or description is missing")
+        if not parser.body_page:
+            errors.append(f"{name}: body data-page is missing")
+        if parser.nav_pages != expected_nav:
+            errors.append(f"{name}: shared navigation is incomplete")
         for reference in parser.refs:
             target = local_ref(site, page, reference)
             if target is not None:
@@ -163,12 +195,16 @@ def main() -> int:
         touch = [icon for icon in parser.icons if (icon.get("rel") or "").lower() == "apple-touch-icon"]
         if len(touch) != 1 or touch[0].get("href") != APP_ICON:
             errors.append(f"{name}: apple-touch-icon must use {APP_ICON}")
+        if name != "404.html":
+            for value in (LINKEDIN, REPOSITORY, 'href="download.html"'):
+                if value not in text:
+                    errors.append(f"{name}: shared product footer or download route missing {value}")
 
     for forbidden in (
         "raw.githubusercontent.com/masarray/arsas/main/Assets/screenshot",
         "https://masarray.github.io/arsas/assets/social-card.svg",
         'href="assets/favicon.svg"',
-        "{{ARSAS_", "{{AUTHOR_", "{{INSTALLER_",
+        "{{", "github.com/masarray/arsas#quick-start", '<meta name="keywords"',
     ):
         if forbidden in combined:
             errors.append(f"deployable HTML contains forbidden value: {forbidden}")
@@ -185,12 +221,10 @@ def main() -> int:
     for value in (LINKEDIN, AUTHOR_GITHUB, REPOSITORY):
         if value not in about + home:
             errors.append(f"author or open-source identity missing {value}")
-    if "github.com/masarray/arsas#quick-start" in home + download:
-        errors.append("primary product pages route ordinary users to README quick-start")
-
-    version = validate_build_info(site, errors)
     if version and f'"softwareVersion": "{version}"' not in home:
         errors.append("homepage softwareVersion does not match build-info.json")
+
+    validate_sitemap(site, pages, errors)
     validate_latest(site, errors)
 
     icon = site / APP_ICON
@@ -210,7 +244,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("ARSAS product-build validation passed: official downloads, author identity, screenshots, metadata and local assets are consistent.")
+    print(f"ARSAS product-build validation passed: {len(pages)} pages share product navigation, author identity, downloads and local assets.")
     return 0
 
 
