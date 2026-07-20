@@ -110,7 +110,8 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         try
         {
             EnsureReady();
-            var result = await _service!.DownloadAsync(
+            var result = await Iec61850FaultRecordInteroperableDownloader.DownloadAsync(
+                _session,
                 record,
                 destinationRoot,
                 new Iec61850FaultRecordDownloadOptions
