@@ -15,8 +15,9 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
     private string _host = string.Empty;
     private int _port = 102;
 
-    public bool IsConnected => _session.IsMmsInitiated;
-    public string ConnectionState => _session.State.ToString();
+    public bool IsConnected => IsSessionHealthy();
+    public string ConnectionState =>
+        $"{_session.State}; transport={_session.IsTransportConnected}; pump={_session.IsReceivePumpRunning}";
 
     public async Task ConnectAsync(
         string host,
@@ -30,21 +31,35 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_session.IsMmsInitiated &&
+            var sameEndpoint =
                 _host.Equals(normalizedHost, StringComparison.OrdinalIgnoreCase) &&
-                _port == normalizedPort)
-            {
+                _port == normalizedPort;
+            if (sameEndpoint && IsSessionHealthy())
                 return;
-            }
 
-            if (_session.IsTransportConnected)
+            // The connection operation token must not own the lifetime of a reusable MMS
+            // receive pump. A completed scan token is replaced before download; without this
+            // rebind the old cancellation would stop confirmed-service response routing while
+            // the association still appeared to be MmsInitiated.
+            if (_session.IsTransportConnected ||
+                _session.IsMmsInitiated ||
+                _session.IsReceivePumpRunning)
+            {
                 await _session.DisposeAsync().ConfigureAwait(false);
+            }
 
             await _session.ConnectAsync(
                 normalizedHost,
                 normalizedPort,
                 TimeSpan.FromSeconds(8),
                 cancellationToken).ConfigureAwait(false);
+            await _session.RebindReceivePumpToSessionLifetimeAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!IsSessionHealthy())
+            {
+                throw new InvalidOperationException(
+                    $"The dedicated fault-record association is not operational after connect. {ConnectionState}.");
+            }
 
             _host = normalizedHost;
             _port = normalizedPort;
@@ -95,7 +110,7 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         try
         {
             EnsureReady();
-            return await _service!.DownloadAsync(
+            var result = await _service!.DownloadAsync(
                 record,
                 destinationRoot,
                 new Iec61850FaultRecordDownloadOptions
@@ -110,6 +125,21 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
                 },
                 progress,
                 cancellationToken).ConfigureAwait(false);
+
+            if (result.IsSuccess)
+                return result;
+
+            return new Iec61850FaultRecordDownloadResult
+            {
+                IsSuccess = false,
+                RecordId = result.RecordId,
+                DestinationDirectory = result.DestinationDirectory,
+                Files = result.Files,
+                BytesTransferred = result.BytesTransferred,
+                Message =
+                    $"{result.Message} Dedicated session: {ConnectionState}. " +
+                    $"Receive routing: {ValueOrDash(_session.LastReceiveRoutingSummary)}"
+            };
         }
         finally
         {
@@ -132,12 +162,20 @@ public sealed class FaultRecordTransferClient : IAsyncDisposable
         }
     }
 
+    private bool IsSessionHealthy()
+        => _session.IsMmsInitiated &&
+           _session.IsTransportConnected &&
+           _session.IsReceivePumpRunning;
+
     private void EnsureReady()
     {
-        if (!_session.IsMmsInitiated || _service == null)
+        if (!IsSessionHealthy() || _service == null)
         {
             throw new InvalidOperationException(
-                $"The dedicated fault-record association is not ready. Current MMS state: {_session.State}.");
+                $"The dedicated fault-record association is not ready. {ConnectionState}.");
         }
     }
+
+    private static string ValueOrDash(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
 }
