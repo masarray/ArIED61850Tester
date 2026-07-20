@@ -42,6 +42,9 @@ Require-Text $mainCode 'LegacySasSclExporter.WriteFiles' "Object-model legacy SA
 Require-Text $mainCode 'SclReportControlFilter.FilterLiveModel' "Live-discovery one-RCB fallback is missing."
 Require-Text $mainCode 'latestAvailability' "The latest read-only availability evidence is not retained for export."
 Require-Text $mainCode 'LiveRcbDataSetEvidenceMerger.MergeSelectedDataSetDirectory' "Live FCDA directory evidence is not merged before selected-RCB export."
+Require-Text $mainCode 'AuthoritativeLiveIedSclExporter.WriteFiles' "Live CID export must normalize the physical IED identity separately from MMS Logical Device domains."
+Require-Text $mainCode 'IedNameOverride = device.Name' "The IED card identity must be passed as the authoritative SCL IED name."
+Reject-Text $mainCode 'Task.Run(() => LiveIedSclExporter.WriteFiles(' "Live selected-RCB export must not bypass authoritative IED identity normalization."
 Require-Text $mainXaml 'Adaptive five-slot action bar' "IED-card source action row is no longer protected from clipping."
 Require-Text $mainXaml '<UniformGrid Rows="1" Columns="5"' "IED-card source actions must expose five slots before runtime separation."
 Require-Text $mainCode 'RemoveUnreferencedDataSets = false' "Safe default must preserve DataSets during selected-RCB export."
@@ -69,6 +72,14 @@ Require-Text $windowCode 'SaveFileDialog' "Production CID destination selection 
 Require-Text $windowCode 'Configured IED Description (*.cid)|*.cid' "Legacy SAS selected-RCB output must remain CID."
 Require-Text $windowCode 'RequiresConfirmation' "Unknown or ARSAS-active RCB selection must require confirmation."
 Require-Text $windowCode 'The source SCL was not modified' "Source immutability must remain visible in failure/cancel handling."
+Require-Text $windowCode 'RunAvailabilityCheckAsync(automatic: true)' "Opening the production RCB window must start a lazy read-only availability audit automatically."
+Require-Text $windowCode 'IsIndeterminate = true' "Automatic availability audit must present a non-blocking progress animation."
+Require-Text $windowCode 'Checking RCB availability' "The automatic audit overlay no longer explains the wait state."
+Require-Text $windowCode 'Interval = TimeSpan.FromSeconds(3)' "RCB export success overlay must dismiss itself after three seconds."
+Require-Text $windowCode 'ShowSuccessOverlay(completion)' "Successful export must use the in-window success overlay."
+Require-Text $windowCode 'Legacy SAS CID exported' "The success overlay no longer communicates completion."
+Reject-Text $windowCode 'RCB Export Complete' "Native RCB export success MessageBox must not return."
+Reject-Text $windowCode 'Process.Start(new ProcessStartInfo("explorer.exe"' "Successful export must not steal focus by opening Explorer automatically."
 Require-Text $windowXaml 'ToolTip="{Binding Reason}"' "RCB status evidence tooltip is missing."
 Require-Text $windowXaml 'Original file remains unchanged' "Source immutability statement is missing from the RCB window."
 
@@ -100,18 +111,23 @@ if (![string]::IsNullOrWhiteSpace($EngineRoot)) {
   $availabilityPath = Join-Path $engine "src/AR.Iec61850/Mms/MmsRcbAvailability.cs"
   $filterPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/SclReportControlFilter.cs"
   $exportPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/LegacySasSclExporter.cs"
-  foreach ($path in @($availabilityPath, $filterPath, $exportPath)) {
+  $identityPath = Join-Path $engine "src/AR.Iec61850/Scl/Export/AuthoritativeLiveIedSclExporter.cs"
+  foreach ($path in @($availabilityPath, $filterPath, $exportPath, $identityPath)) {
     if (!(Test-Path $path)) { throw "Required ARIEC61850 RCB API is missing: $path" }
   }
 
   $availability = Get-Content $availabilityPath -Raw
   $filter = Get-Content $filterPath -Raw
   $export = Get-Content $exportPath -Raw
+  $identity = Get-Content $identityPath -Raw
   Require-Text $availability 'does not expose enough reservation evidence to prove availability' "Edition 1 BRCB uncertainty guard is missing."
   Require-Text $filter 'var document = new XDocument(source);' "SCL filter must clone rather than mutate the source document."
   Require-Text $filter 'Legacy SAS export requires exactly one selected ReportControl.' "Exactly-one-RCB guard is missing."
   Require-Text $export 'Filtered SCL validation expected one ReportControl' "Post-export single-RCB validation is missing."
   Require-Text $export 'The original source file was not modified.' "Engine evidence no longer states source immutability."
+  Require-Text $identity '"ldName",' "Engine identity boundary must write explicit MMS Logical Device names through LDevice.ldName."
+  Require-Text $identity 'ValidateIdentity' "Engine must validate the normalized IED and MMS-domain identity mapping."
+  Require-Text $identity 'missingDomains' "Engine must reject loss of discovered MMS Logical Device domains."
 }
 
-Write-Host "Legacy SAS RCB export, stable two-row IED card layout, read-only availability, Edition 1 CID default, and engine boundaries passed."
+Write-Host "Legacy SAS RCB export, authoritative IED identity, automatic read-only availability, transient success overlay, stable IED card layout, Edition 1 CID default, and engine boundaries passed."
