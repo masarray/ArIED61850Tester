@@ -70,12 +70,15 @@ class Parser(HTMLParser):
             self.title += data
 
 
-def local_target(page: Path, value: str) -> Path | None:
+def local_target(page: Path, value: str, template: bool) -> Path | None:
     clean = value.split("#", 1)[0].split("?", 1)[0]
+    if "{{" in clean:
+        return None
     parsed = urlparse(clean)
     if not clean or parsed.scheme or parsed.netloc or clean.startswith("#"):
         return None
-    return (page.parent / clean).resolve()
+    base = LANDING if template else page.parent
+    return (base / clean).resolve()
 
 
 def check_page(page: Path, errors: list[str], template: bool = False) -> None:
@@ -100,12 +103,12 @@ def check_page(page: Path, errors: list[str], template: bool = False) -> None:
             errors.append(f"{label}: missing {key}")
 
     for ref in parser.refs:
-        target = local_target(page, ref)
+        target = local_target(page, ref, template)
         if target is not None and not target.exists():
             errors.append(f"{label}: missing local reference {ref}")
     for image in parser.images:
         src = image.get("src") or ""
-        target = local_target(page, src)
+        target = local_target(page, src, template)
         if target is not None and not target.exists():
             errors.append(f"{label}: missing local image {src}")
         if image.get("alt") is None or not image.get("width") or not image.get("height"):
