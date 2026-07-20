@@ -25,6 +25,7 @@ SITE_PATHS = (
     "scripts/generate-privacy-pages.py",
     "scripts/stamp-site-build.py",
     "scripts/verify-pages-deployment.py",
+    "scripts/resolve-site-source-commit.py",
     ".github/workflows/pages.yml",
 )
 
