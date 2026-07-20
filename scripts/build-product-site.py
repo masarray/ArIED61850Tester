@@ -20,6 +20,7 @@ PROJECT_PATH = ROOT / "ArIED61850Tester.csproj"
 APP_ICON_SOURCE = ROOT / "Assets" / "app-icon-256.png"
 INCLUDE_PATTERN = re.compile(r"\{\{>\s*([a-z0-9-]+)\s*\}\}", re.IGNORECASE)
 TOKEN_PATTERN = re.compile(r"\{\{([A-Z0-9_]+)\}\}")
+VERIFICATION_FILE_PATTERN = re.compile(r"google[a-z0-9]+\.html", re.IGNORECASE)
 
 
 def read_version() -> str:
@@ -200,6 +201,14 @@ def write_build_info(output: Path, config: dict[str, object], version: str, page
     )
 
 
+def legacy_html_names() -> list[str]:
+    return sorted(
+        path.name
+        for path in SOURCE.glob("*.html")
+        if not VERIFICATION_FILE_PATTERN.fullmatch(path.name)
+    )
+
+
 def build(output: Path) -> None:
     version = read_version()
     config = read_config()
@@ -222,7 +231,7 @@ def build(output: Path) -> None:
         target.write_text(render(source_text, values), encoding="utf-8")
         generated.add(target_name)
 
-    source_html = sorted(path.name for path in SOURCE.glob("*.html"))
+    source_html = legacy_html_names()
     if source_html:
         raise SystemExit("Legacy landing HTML remains outside templates: " + ", ".join(source_html))
 
