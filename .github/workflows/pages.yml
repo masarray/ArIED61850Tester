@@ -5,17 +5,17 @@ on:
     branches: [ main ]
     paths:
       - "landing/**"
-      - "scripts/validate-landing.py"
-      - "scripts/build-landing.py"
-      - "scripts/validate-built-landing.py"
+      - "scripts/validate-product-source.py"
+      - "scripts/build-product-site.py"
+      - "scripts/validate-product-build.py"
       - ".github/workflows/pages.yml"
   pull_request:
     branches: [ main ]
     paths:
       - "landing/**"
-      - "scripts/validate-landing.py"
-      - "scripts/build-landing.py"
-      - "scripts/validate-built-landing.py"
+      - "scripts/validate-product-source.py"
+      - "scripts/build-product-site.py"
+      - "scripts/validate-product-build.py"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate static website
+    name: Validate ARSAS product website
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -39,11 +39,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate source HTML, links and SEO metadata
-        run: python scripts/validate-landing.py
+      - name: Validate product source, templates and SEO contract
+        run: python scripts/validate-product-source.py
 
-      - name: Build deployable website with local media
-        run: python scripts/build-landing.py --output _site
+      - name: Build deterministic product website
+        run: python scripts/build-product-site.py --output _site
 
       - name: Sync verified stable updater manifest
         if: github.event_name != 'pull_request'
@@ -75,8 +75,33 @@ jobs:
           Path('_site/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
           PY
 
-      - name: Validate local screenshots, social preview, downloads and updater manifest
-        run: python scripts/validate-built-landing.py _site
+      - name: Add PR validation manifest
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          build = json.loads(Path('_site/build-info.json').read_text())
+          manifest = {
+              'schemaVersion': 1,
+              'product': 'ARSAS',
+              'version': build['version'],
+              'channel': 'stable',
+              'publishedAtUtc': '1970-01-01T00:00:00Z',
+              'installer': {
+                  'name': 'ARSAS-Windows-x64-Setup.exe',
+                  'url': 'https://github.com/masarray/arsas/releases/latest/download/ARSAS-Windows-x64-Setup.exe',
+                  'sha256': '0' * 64,
+                  'sizeBytes': 1000000,
+              },
+          }
+          Path('_site/latest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
+      - name: Validate rendered product website
+        run: python scripts/validate-product-build.py _site
 
       - name: Verify public website boundaries
         shell: bash
