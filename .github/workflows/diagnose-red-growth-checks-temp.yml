@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/ci-growth-measurement
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-red-growth-checks-temp.yml"
 
 permissions:
   actions: read
