@@ -17,17 +17,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view v1.6.18 --repo "$GITHUB_REPOSITORY" \
-            --json tagName,name,isLatest,isPrerelease,isDraft,publishedAt,url,targetCommitish,assets \
+            --json tagName,name,isPrerelease,isDraft,publishedAt,url,targetCommitish,assets \
             > release.json
+          gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+            --jq '{tag_name,name,draft,prerelease,published_at,html_url,target_commitish,assets:[.assets[]|{name,size,state,digest,browser_download_url}]}' \
+            > latest-release.json
           mkdir release-assets
           gh release download v1.6.18 --repo "$GITHUB_REPOSITORY" \
             --pattern "ARSAS-Windows-x64-SHA256SUMS.txt" \
             --dir release-assets
           cat release.json
+          cat latest-release.json
           cat release-assets/ARSAS-Windows-x64-SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: verified-arsas-1.6.18-release
           path: |
             release.json
+            latest-release.json
             release-assets/ARSAS-Windows-x64-SHA256SUMS.txt
