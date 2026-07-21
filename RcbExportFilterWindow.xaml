@@ -185,7 +185,8 @@
             <Button Grid.Column="2" Style="{StaticResource SoftButton}" Padding="12,7" Click="SelectAvailable_Click">
                 <TextBlock Text="Select First Available"/>
             </Button>
-            <Border Grid.Column="4" Background="#F4F7FC" BorderBrush="#D8E2F0" BorderThickness="1" CornerRadius="11" Padding="13,8">
+            <Border Grid.Column="4" Background="#F4F7FC" BorderBrush="#D8E2F0" BorderThickness="1"
+                    CornerRadius="11" Padding="13,8" ToolTip="Original file remains unchanged">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding SelectionSummary}" FontSize="12.2" FontWeight="SemiBold"
