@@ -125,9 +125,12 @@ if (![string]::IsNullOrWhiteSpace($EngineRoot)) {
   Require-Text $filter 'Legacy SAS export requires exactly one selected ReportControl.' "Exactly-one-RCB guard is missing."
   Require-Text $export 'Filtered SCL validation expected one ReportControl' "Post-export single-RCB validation is missing."
   Require-Text $export 'The original source file was not modified.' "Engine evidence no longer states source immutability."
+  Require-Text $export 'ApplyExactRuntimeReportControlIdentity' "Exact runtime RCB normalization is missing."
+  Require-Text $export 'A_BRCB_120101' "The exact-name double-index regression evidence is missing."
+  Require-Text $export 'must not contain RptEnabled because that can append a second instance suffix' "Exact runtime RCB export no longer rejects duplicate instance indexing."
   Require-Text $identity '"ldName",' "Engine identity boundary must write explicit MMS Logical Device names through LDevice.ldName."
   Require-Text $identity 'ValidateIdentity' "Engine must validate the normalized IED and MMS-domain identity mapping."
   Require-Text $identity 'missingDomains' "Engine must reject loss of discovered MMS Logical Device domains."
 }
 
-Write-Host "Legacy SAS RCB export, authoritative IED identity, automatic read-only availability, transient success overlay, stable IED card layout, Edition 1 CID default, and engine boundaries passed."
+Write-Host "Legacy SAS RCB export, exact runtime RCB naming, authoritative IED identity, automatic read-only availability, transient success overlay, stable IED card layout, Edition 1 CID default, and engine boundaries passed."
