@@ -1,0 +1,46 @@
+name: Verify main growth quality checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/verify-main-growth-checks-temp.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify latest main push runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: c356bf31c14a054a01817745bc4b2b7511f5c4e3
+        run: |
+          set -euo pipefail
+          mkdir evidence
+          for item in "317000709:search-growth" "316621036:site-measurement"; do
+            workflow_id="${item%%:*}"
+            label="${item##*:}"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=main&event=push&per_page=20" > "evidence/${label}-runs.json"
+            python - "$label" "$EXPECTED_SHA" <<'PY'
+          import json, sys
+          label, expected = sys.argv[1], sys.argv[2]
+          path = f'evidence/{label}-runs.json'
+          data = json.load(open(path, encoding='utf-8'))
+          matches = [r for r in data.get('workflow_runs', []) if r.get('head_sha') == expected]
+          if not matches:
+              raise SystemExit(f'{label}: no main push run found for {expected}')
+          run = max(matches, key=lambda r: r.get('run_attempt', 1))
+          if run.get('status') != 'completed' or run.get('conclusion') != 'success':
+              raise SystemExit(f"{label}: run {run.get('id')} is {run.get('status')}/{run.get('conclusion')}")
+          summary = {key: run.get(key) for key in ('id','name','event','status','conclusion','head_branch','head_sha','run_number','created_at','updated_at','html_url')}
+          open(f'evidence/{label}-verified.json','w',encoding='utf-8').write(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          PY
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-main-growth-checks
+          path: evidence/*-verified.json
