@@ -13,7 +13,7 @@ jobs:
   diagnose:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture recent release workflow runs
+      - name: Capture recent release workflow runs and failure
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -26,8 +26,17 @@ jobs:
               rows.append({k: run.get(k) for k in ('id','name','event','status','conclusion','head_branch','head_sha','run_number','created_at','updated_at','html_url')})
           open('release-runs-summary.json','w',encoding='utf-8').write(json.dumps(rows, indent=2))
           print(json.dumps(rows, indent=2))
+          failed = next((r for r in rows if r.get('conclusion') == 'failure'), None)
+          if failed:
+              open('latest-failed-run-id.txt','w',encoding='utf-8').write(str(failed['id']))
           PY
+          run_id=$(cat latest-failed-run-id.txt)
+          gh run view "$run_id" --repo "$GITHUB_REPOSITORY" --log-failed > release-failed.log
+          tail -n 160 release-failed.log > release-failed-tail.log
+          cat release-failed-tail.log
       - uses: actions/upload-artifact@v4
         with:
           name: release-workflow-diagnostics
-          path: release-runs-summary.json
+          path: |
+            release-runs-summary.json
+            release-failed-tail.log
