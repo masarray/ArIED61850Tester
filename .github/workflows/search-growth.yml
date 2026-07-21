@@ -67,18 +67,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Prepare stable release evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prepare deterministic stable release evidence
         shell: bash
-        run: |
-          set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            cp landing/latest.json /tmp/arsas-published.json
-          else
-            gh api "repos/$GITHUB_REPOSITORY/contents/published.json?ref=release-evidence" --jq .content | base64 -d > /tmp/arsas-published.json
-          fi
-
+        run: cp landing/latest.json /tmp/arsas-published.json
       - name: Build product website
         run: python scripts/build-product-site.py --output _site --release-evidence /tmp/arsas-published.json
 
@@ -158,12 +149,9 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
 
-      - name: Prepare stable release evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Prepare deterministic stable release evidence
         shell: bash
-        run: gh api "repos/$GITHUB_REPOSITORY/contents/published.json?ref=release-evidence" --jq .content | base64 -d > /tmp/arsas-published.json
-
+        run: cp landing/latest.json /tmp/arsas-published.json
       - name: Build current product website
         run: python scripts/build-product-site.py --output _site --release-evidence /tmp/arsas-published.json
 
