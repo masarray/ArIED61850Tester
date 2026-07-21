@@ -1,0 +1,33 @@
+name: Diagnose ARSAS release workflow
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/diagnose-release-temp.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture recent release workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/release-windows.yml/runs?per_page=10" > release-runs.json
+          python - <<'PY'
+          import json
+          data = json.load(open('release-runs.json', encoding='utf-8'))
+          rows = []
+          for run in data.get('workflow_runs', []):
+              rows.append({k: run.get(k) for k in ('id','name','event','status','conclusion','head_branch','head_sha','run_number','created_at','updated_at','html_url')})
+          open('release-runs-summary.json','w',encoding='utf-8').write(json.dumps(rows, indent=2))
+          print(json.dumps(rows, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-workflow-diagnostics
+          path: release-runs-summary.json
