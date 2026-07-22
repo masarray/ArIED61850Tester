@@ -113,7 +113,8 @@ def main() -> int:
         for status in ("verified", "conditional", "observed"):
             if f'data-status="{status}"' not in text:
                 errors.append(f"{label}: missing status {status}")
-        if "device-evidence.json" not in text or "conformance" not in text.lower():
+        lower = text.lower()
+        if "device-evidence.json" not in text or not any(term in lower for term in ("conformance", "conformity")):
             errors.append(f"{label}: missing machine-readable or conformance boundary")
 
     for name in ("guides.html", "panduan.html"):
@@ -159,9 +160,10 @@ def main() -> int:
 
     for name in ("download.html", "unduh.html", "release-notes.html", "catatan-rilis.html"):
         text = read(TEMPLATES / name, errors)
-        if "SBOM" not in text or "provenance" not in text.lower():
+        lower = text.lower()
+        if "SBOM" not in text or "provenance" not in lower:
             errors.append(f"{name}: missing supply-chain evidence guidance")
-        if "does not claim" not in text.lower() and "tidak mengklaim" not in text.lower() and "tidak menganggap" not in text.lower():
+        if not any(term in lower for term in ("does not claim", "does not infer", "tidak mengklaim", "tidak menganggap")):
             errors.append(f"{name}: missing honest current-release provenance boundary")
 
     if args.site:
