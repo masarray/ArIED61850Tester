@@ -47,6 +47,18 @@ jobs:
           ref: ${{ steps.release.outputs.tag }}
           fetch-depth: 1
 
+      - name: Resolve exact tagged source commit
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid tagged source commit: $source_commit" >&2
+            exit 1
+          fi
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+
       - name: Download exact public release assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -75,13 +87,13 @@ jobs:
           mkdir -p _supply/package
           unzip -q _supply/ARSAS-Windows-x64-Portable.zip -d _supply/package
 
-      - name: Generate deterministic SPDX 2.3 SBOM
+      - name: Generate SPDX 2.3 package SBOM
         shell: bash
         run: |
           python scripts/generate-release-sbom.py \
             --package-dir _supply/package \
             --version '${{ steps.release.outputs.version }}' \
-            --source-commit "$GITHUB_SHA" \
+            --source-commit '${{ steps.source.outputs.source_commit }}' \
             --output _supply/ARSAS-Windows-x64-SBOM.spdx.json
 
       - name: Validate SBOM identity and package files
@@ -122,22 +134,21 @@ jobs:
       - name: Record private supply-chain evidence
         shell: bash
         run: |
-          {
-            echo '# ARSAS release supply-chain evidence'
-            echo
-            echo '- Tag: `${{ steps.release.outputs.tag }}`'
-            echo '- Source commit: `'$GITHUB_SHA'`'
-            echo '- Installer SHA-256: `'
-            sha256sum _supply/ARSAS-Windows-x64-Setup.exe | cut -d' ' -f1
-            echo '`'
-            echo '- Portable SHA-256: `'
-            sha256sum _supply/ARSAS-Windows-x64-Portable.zip | cut -d' ' -f1
-            echo '`'
-            echo '- SBOM: `ARSAS-Windows-x64-SBOM.spdx.json`'
-            echo '- Attestation type: GitHub artifact digest and SBOM attestation after checksum-verified publication.'
-            echo
-            echo 'This evidence does not retroactively describe another tag and is not IEC 61850 conformance certification.'
-          } > _supply/evidence.md
+          set -euo pipefail
+          installer_sha="$(sha256sum _supply/ARSAS-Windows-x64-Setup.exe | cut -d' ' -f1)"
+          portable_sha="$(sha256sum _supply/ARSAS-Windows-x64-Portable.zip | cut -d' ' -f1)"
+          cat > _supply/evidence.md <<EOF
+          # ARSAS release supply-chain evidence
+
+          - Tag: `${{ steps.release.outputs.tag }}`
+          - Tagged source commit: `${{ steps.source.outputs.source_commit }}`
+          - Installer SHA-256: `$installer_sha`
+          - Portable SHA-256: `$portable_sha`
+          - SBOM: `ARSAS-Windows-x64-SBOM.spdx.json`
+          - Attestation type: GitHub artifact digest and SBOM attestation after checksum-verified publication.
+
+          This post-publication evidence does not retroactively describe another tag, does not claim a reproducible build, and is not IEC 61850 conformance certification.
+          EOF
           cat _supply/evidence.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload supply-chain evidence artifact
