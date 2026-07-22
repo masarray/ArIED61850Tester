@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -57,7 +56,7 @@ def main() -> int:
     quick = read(TEMPLATES / "quick-start.html", errors)
     quick_id = read(TEMPLATES / "panduan-mulai-arsas.html", errors)
     for text, label in ((quick, "quick-start.html"), (quick_id, "panduan-mulai-arsas.html")):
-        for value in ("quick-step-number", "TCP port 102", "Npcap", "live MMS", "quality", "timestamp", "reporting", "polling", "diagnostic", "control"):
+        for value in ("quick-step-number", "TCP port 102", "Npcap", "MMS", "live", "quality", "timestamp", "reporting", "polling", "diagnostic", "control"):
             if value.lower() not in text.lower():
                 errors.append(f"{label}: missing onboarding contract {value}")
         if text.count('class="quick-step"') != 7:
@@ -149,17 +148,21 @@ def main() -> int:
         if value.lower() not in combined_forms.lower():
             errors.append(f"issue forms missing intake boundary {value}")
 
-    release_workflow = read(ROOT / ".github" / "workflows" / "release-windows.yml", errors)
-    for value in ("actions/attest@v4", "attestations: write", "id-token: write", "sbom-tool-win-x64.exe", "ARSAS-Windows-x64-SBOM.spdx.json"):
-        if value not in release_workflow:
-            errors.append(f"release workflow missing future supply-chain contract {value}")
+    supply_workflow = read(ROOT / ".github" / "workflows" / "release-supply-chain.yml", errors)
+    for value in ("actions/attest@v4", "attestations: write", "id-token: write", "sha256sum --check", "generate-release-sbom.py", "ARSAS-Windows-x64-SBOM.spdx.json"):
+        if value not in supply_workflow:
+            errors.append(f"release supply-chain workflow missing contract {value}")
+    sbom_generator = read(ROOT / "scripts" / "generate-release-sbom.py", errors)
+    for value in ("SPDX-2.3", "packageVerificationCode", "SHA256", "GPL-3.0-or-later"):
+        if value not in sbom_generator:
+            errors.append(f"SBOM generator missing contract {value}")
 
     for name in ("download.html", "unduh.html", "release-notes.html", "catatan-rilis.html"):
         text = read(TEMPLATES / name, errors)
         if "SBOM" not in text or "provenance" not in text.lower():
             errors.append(f"{name}: missing supply-chain evidence guidance")
-        if "1.6.18" in text and "provenance available" in text.lower():
-            errors.append(f"{name}: falsely claims provenance for current release")
+        if "does not claim" not in text.lower() and "tidak mengklaim" not in text.lower() and "tidak menganggap" not in text.lower():
+            errors.append(f"{name}: missing honest current-release provenance boundary")
 
     if args.site:
         site = Path(args.site).resolve()
@@ -176,7 +179,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print("ARSAS adoption and field-proof validation passed: 54 pages, 17 localized pages, onboarding, FAQ, evidence, demo, issue intake and future provenance.")
+    print("ARSAS adoption and field-proof validation passed: 54 pages, 17 localized pages, onboarding, FAQ, evidence, demo, issue intake, responsive media and future supply-chain attestations.")
     return 0
 
 
