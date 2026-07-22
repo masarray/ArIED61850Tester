@@ -1,8 +1,6 @@
-name: Attest ARSAS release supply chain
+name: Backfill ARSAS release supply chain
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -16,7 +14,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-supply-chain-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-supply-chain-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -27,12 +25,11 @@ jobs:
       - name: Resolve release identity
         id: release
         env:
-          EVENT_TAG: ${{ github.event.release.tag_name }}
           INPUT_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="${EVENT_TAG:-${INPUT_TAG:-}}"
+          tag="${INPUT_TAG:-}"
           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid release tag: $tag" >&2
             exit 1
