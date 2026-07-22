@@ -45,13 +45,15 @@ Security-sensitive reports continue through private GitHub Security Advisories.
 
 The current stable release keeps its existing package name, size, SHA-256, publication and Authenticode evidence. P3 does not retroactively claim an SBOM or provenance attestation for an older release.
 
-For an exact published tag, `.github/workflows/release-supply-chain.yml`:
+For releases built after P3, `.github/workflows/release-windows.yml`:
 
-1. checks out the exact tag;
-2. downloads the official installer, portable ZIP and checksum file;
-3. verifies the published SHA-256 values;
-4. inventories the extracted portable package into SPDX 2.3 JSON;
-5. uploads the SPDX file to the same tagged release;
-6. creates GitHub artifact digest and SBOM attestations for the verified package files.
+1. builds and smoke-tests the installer and portable package;
+2. stages stable public assets and verifies their SHA-256 values;
+3. inventories the exact portable package directory into SPDX 2.3 JSON;
+4. creates GitHub artifact digest and SBOM attestations for those build outputs;
+5. uploads the SBOM with the installer, portable ZIP and checksums to the same tagged release;
+6. records the SBOM identity and attestation repository in publication evidence.
 
-This is checksum-verified post-publication artifact evidence. It is not described as reproducible build provenance and is not IEC 61850 conformance certification.
+`.github/workflows/release-supply-chain.yml` is a manual backfill path for an existing tag. It first downloads and checksum-verifies the published assets, then generates the SPDX file and post-publication attestations. It does not run automatically after the primary Windows release workflow, avoiding duplicate SBOMs with different creation timestamps.
+
+Build-time attestations establish workflow identity and subject digests. The manual backfill is described only as checksum-verified post-publication artifact evidence. Neither path is IEC 61850 conformance certification, and neither is a claim that every dependency or build environment is reproducible.
